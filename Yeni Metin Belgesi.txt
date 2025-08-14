@@ -1,1 +1,3348 @@
 
+
+// ==UserScript==
+// @name         Agarz Waless
+// @namespace    http://tampermonkey.net/
+// @version      2025-03-21
+// @description  try to take over the world!
+// @author       You
+// @match        https://agarz.com/
+// @icon         https://cdn.agarz.com/z_613440_yrn269.png
+// @grant        none
+// ==/UserScript==
+
+/* --  Aşağıdaki sayıları ve benzeri şeyleri değiştirebilirsiniz. Sadece "4", "5" gibi değiştirin. Çentiklerin içine yazın. Yeni sayı yazacaksanız çentikleri silmeyin. --*/
+
+//ESC Resim Değiştirme
+var resim = "https://i.hizliresim.com/l8bl7yi.png";
+//-------------------------------------------------
+
+//Tab tuşuna bastığında oyun ayarları açılır
+var oyunayarlari = "<";
+//-------------------------------------------------
+
+//Sürekli Oyna "h" tuşu sürekli oynayı açar. / "b" tuşu sürekli oyna butonunu gizle&göster
+var süreklioyna = "g";
+var süreklioynagizle = "4";
+//-------------------------------------------------
+
+//5 Tuşu soldaki tüm butonları gizler.
+var butongizleme = "4";
+//-------------------------------------------------
+
+//İzlediğiniz oyuncunun ismi ~ skoru "3" / Oyunda iseniz ffa toplam skor gözükür. "4"
+var izleyiciskor = "3";
+var ffatoplamskor = "3";
+//-------------------------------------------------
+
+//Renk paneli "Tab" Açar.
+var renkpaneli = "Tab";
+//-------------------------------------------------
+
+//Respawn.Ffadan çık gir tuşu
+var ffadançıkgir = "1";
+
+(function () {
+    const özelEfektler = {
+        "Yarén": "#ff0000", // kırmızı ışık
+        "Waless": "#ff0000" // kırmızı ışık
+    };
+
+    const sayiEfekt = {
+        kısa: "#ff0000", // 5 basamak ve altı → kırmızı
+        uzun: "#00ff00" // 6 basamak ve üzeri → yeşil
+    };
+
+    const orjinalFillText = CanvasRenderingContext2D.prototype.fillText;
+    let parıltıAçık = true;
+
+    // Parıltı yanıp sönmesi
+    setInterval(() => {
+        parıltıAçık = !parıltıAçık;
+    }, 500);
+
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+        const özelParıltı = özelEfektler[text];
+        const sayiMi = !isNaN(parseFloat(text)) && isFinite(text);
+
+        this.save();
+
+        // Sadece özel parıltılar ve sayılar için yazı beyaz yapılır
+        if (özelParıltı || sayiMi) {
+            this.fillStyle = "#ffffff";
+        }
+
+        // Fontu bold yap
+        this.font = this.font.replace(/\d+px/, "bold $&");
+
+        if (parıltıAçık) {
+            if (özelParıltı) {
+                this.shadowColor = özelParıltı;
+                this.shadowBlur = 40;
+                this.shadowOffsetX = 0;
+                this.shadowOffsetY = 0;
+
+            } else if (sayiMi) {
+                const basamakSayisi = text.replace(/\D/g, "").length;
+                this.shadowColor = basamakSayisi >= 6 ? sayiEfekt.uzun : sayiEfekt.kısa;
+                this.shadowBlur = 40;
+                this.shadowOffsetX = 0;
+                this.shadowOffsetY = 0;
+            } else {
+                this.shadowBlur = 0;
+            }
+        } else {
+            this.shadowBlur = 0;
+        }
+
+        orjinalFillText.call(this, text, x, y, maxWidth);
+        this.restore();
+    };
+})();
+
+
+// 1. Skor kutusunu oluştur
+const liveScore = document.createElement('div');
+liveScore.style = `
+  position: fixed;
+  top: 180px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 26px;
+  font-weight: bold;
+  font-family: monospace;
+  color: lime;
+  text-shadow: 0 0 6px lime;
+  z-index: 0;
+  display: none; /* Başlangıçta gizli */
+`;
+document.body.appendChild(liveScore);
+
+// 2. Sesli uyarı fonksiyonu
+function playWarningSound() {
+  const audio = new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg');
+  audio.volume = 0.5;
+  audio.play();
+}
+
+// 3. Önceki durum ve aktiflik kontrolü
+let wasBelow = false;
+let scoreSystemActive = false; // Başlangıçta kapalı
+
+// 4. 6 tuşu ile aç/kapat
+document.addEventListener('keydown', (e) => {
+  if (e.key === '6') {
+    scoreSystemActive = !scoreSystemActive;
+    liveScore.style.display = scoreSystemActive ? 'block' : 'none';
+  }
+});
+
+// 5. Skoru sürekli kontrol eden fonksiyon
+setInterval(() => {
+  if (!scoreSystemActive) return;
+
+  let val = userScoreMax;
+  if (typeof val !== "number") return;
+
+  const formatted = val.toLocaleString('de-DE');
+
+  if (val >= 100000) {
+    liveScore.style.color = "lime";
+    liveScore.style.textShadow = "0 0 6px lime";
+    wasBelow = false;
+  } else if (val >= 90000) {
+    liveScore.style.color = "orange";
+    liveScore.style.textShadow = "0 0 6px orange";
+    if (!wasBelow) {
+      playWarningSound();
+      wasBelow = true;
+    }
+  } else {
+    liveScore.style.color = "red";
+    liveScore.style.textShadow = "0 0 6px red";
+    if (!wasBelow) {
+      playWarningSound();
+      wasBelow = true;
+    }
+  }
+
+  liveScore.textContent = `Skor: ${formatted}`;
+}, 1000);
+
+// 1. Sabit Mesaj Alanı
+const pinnedMessage = document.createElement('div');
+pinnedMessage.id = 'pinnedMessage';
+pinnedMessage.style = `
+  position: fixed;
+  top: 230px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ff69b4;
+  text-shadow: 0 0 10px #ff69b4, 0 0 20px #ff69b4;
+  font-size: 22px;
+  font-weight: bold;
+  z-index: 0;
+  display: block;
+`;
+pinnedMessage.textContent = 'Yengeye Elif Dedin Usta...';
+document.body.appendChild(pinnedMessage);
+
+// 2. Input ve Gönder Butonu Kutusu
+const inputContainer = document.createElement('div');
+inputContainer.style = `
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 0;
+`;
+
+// 3. Yazı Kutusu
+const inputBox = document.createElement('input');
+inputBox.type = 'text';
+inputBox.placeholder = 'Yaz alem yiğit görsün';
+inputBox.style = `
+  width: 300px;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-family: monospace;
+  border: 2px solid white;
+  border-radius: 28px;
+  background-color: rgba(0,0,0,0.6);
+  color: white;
+  text-shadow: 0 0 6px white;
+  box-shadow: 0 0 10px white;
+`;
+
+// 4. Gönder Butonu
+const sendButton = document.createElement('button');
+sendButton.textContent = 'Gönder';
+sendButton.style = `
+  padding: 8px 16px;
+  font-size: 16px;
+  font-weight: bold;
+  background-color: black;
+  color: white;
+  border: 2px solid white;
+  border-radius: 28px;
+  cursor: pointer;
+  text-shadow: 0 0 6px white;
+  box-shadow: 0 0 10px white;
+`;
+
+sendButton.onclick = () => {
+  const val = inputBox.value.trim();
+  if (val !== '') {
+    pinnedMessage.textContent = val;
+    inputBox.value = '';
+  }
+};
+
+inputContainer.appendChild(inputBox);
+inputContainer.appendChild(sendButton);
+document.body.appendChild(inputContainer);
+
+// 5. Input odaktayken tuşlar oyunu etkilemesin
+inputBox.addEventListener('keydown', function(e) {
+  e.stopPropagation(); // tuş oyuna gitmesin
+  if (e.key === 'Enter') {
+    sendButton.click();
+  }
+});
+
+// 6. Kısayol tuşları
+let inputVisible = true;
+let pinnedVisible = true;
+
+document.addEventListener('keydown', function(e) {
+  const activeEl = document.activeElement;
+  if (activeEl === inputBox) return; // input içindeyken diğer tuşlara izin verme
+
+  if (e.key === '*') {
+    inputVisible = !inputVisible;
+    inputContainer.style.display = inputVisible ? 'flex' : 'none';
+  }
+
+  if (e.key === '8') {
+    pinnedVisible = !pinnedVisible;
+    pinnedMessage.style.display = pinnedVisible ? 'block' : 'none';
+  }
+});
+
+// === SKOR TAKİP VE UYARI SİSTEMİ ===
+
+// 1. Skor kutusunu oluştur
+const LiveScore = document.createElement('div');
+liveScore.style = `
+  position: fixed;
+  top: 180px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 26px;
+  font-weight: bold;
+  font-family: monospace;
+  color: lime;
+  text-shadow: 0 0 6px lime;
+  z-index: 0;
+  display: none;
+`;
+document.body.appendChild(liveScore);
+
+// 2. Sesli uyarılar
+const sounds = {
+  warning: new Audio('https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg'),
+  siren: new Audio('https://actions.google.com/sounds/v1/alarms/siren.ogg'),
+  score1m: new Audio('https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg'),
+  score2m: new Audio('https://actions.google.com/sounds/v1/cartoon/descending_whistle_2.ogg'),
+  score3m: new Audio('https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg'),
+  score4m: new Audio('https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg'),
+  score5m: new Audio('https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg')
+};
+
+for (let key in sounds) sounds[key].volume = 0.5;
+
+// 3. Durumlar
+let wasBelow100k = false;
+let wasInSiren = false;
+let lastMilestone = 0;
+let systemEnabled = false;
+
+// 4. Aç/kapa için 6 tuşu
+document.addEventListener('keydown', (e) => {
+  if (e.key === '6') {
+    systemEnabled = !systemEnabled;
+    liveScore.style.display = systemEnabled ? 'block' : 'none';
+  }
+});
+
+// 5. Skor takibi
+setInterval(() => {
+  if (!systemEnabled) return;
+
+  let val = typeof userScoreMax === 'number' ? userScoreMax : 0;
+  const formatted = val.toLocaleString('de-DE');
+
+  // Öncelik: özel aralık (215k - 225k)
+  if (val >= 215000 && val <= 225000) {
+    liveScore.style.color = 'red';
+    liveScore.style.textShadow = '0 0 6px red';
+    liveScore.textContent = `🔴 Skor: ${formatted}`;
+    if (!wasInSiren) {
+      sounds.siren.play();
+      wasInSiren = true;
+    }
+    return;
+  }
+
+  // Milyonluk skorlar (sadece bir kez tetiklenir)
+  if (val >= 5000000 && lastMilestone < 5000000) {
+    liveScore.style.color = 'deepskyblue';
+    liveScore.style.textShadow = '0 0 6px deepskyblue';
+    liveScore.textContent = `🔷 5 MİLYON SKOR!`;
+    sounds.score5m.play();
+    lastMilestone = 5000000;
+  } else if (val >= 4000000 && lastMilestone < 4000000) {
+    liveScore.style.color = 'yellow';
+    liveScore.style.textShadow = '0 0 6px yellow';
+    liveScore.textContent = `🟡 4 MİLYON SKOR!`;
+    sounds.score4m.play();
+    lastMilestone = 4000000;
+  } else if (val >= 3000000 && lastMilestone < 3000000) {
+    liveScore.style.color = 'purple';
+    liveScore.style.textShadow = '0 0 6px purple';
+    liveScore.textContent = `🟣 3 MİLYON SKOR!`;
+    sounds.score3m.play();
+    lastMilestone = 3000000;
+  } else if (val >= 2000000 && lastMilestone < 2000000) {
+    liveScore.style.color = 'hotpink';
+    liveScore.style.textShadow = '0 0 6px hotpink';
+    liveScore.textContent = `🌸 2 MİLYON SKOR!`;
+    sounds.score2m.play();
+    lastMilestone = 2000000;
+  } else if (val >= 1000000 && lastMilestone < 1000000) {
+    liveScore.style.color = 'turquoise';
+    liveScore.style.textShadow = '0 0 6px turquoise';
+    liveScore.textContent = `🔵 1 MİLYON SKOR!`;
+    sounds.score1m.play();
+    lastMilestone = 1000000;
+  } else {
+    // Normal skor uyarıları
+    if (val < 100000) {
+      const warningColor = val >= 90000 ? 'orange' : 'red';
+      const icon = warningColor === 'orange' ? '🟠' : '🔴';
+      liveScore.style.color = warningColor;
+      liveScore.style.textShadow = `0 0 6px ${warningColor}`;
+      liveScore.textContent = `${icon} Skor: ${formatted}`;
+      if (!wasBelow100k) {
+        sounds.warning.play();
+        wasBelow100k = true;
+      }
+    } else {
+      liveScore.style.color = 'lime';
+      liveScore.style.textShadow = '0 0 6px lime';
+      liveScore.textContent = `✅ Skor: ${formatted}`;
+      wasBelow100k = false;
+    }
+    wasInSiren = false;
+  }
+
+}, 1000);
+// --- GEÇİCİ MÜZİK PANELİ KODU ---
+
+// 🎵 Simgesi
+const musicIcon = document.createElement("div");
+musicIcon.textContent = " ";
+Object.assign(musicIcon.style, {
+  position: "fixed", top: "50%", right: "80px",
+  transform: "translateY(-50%)", fontSize: "28px", cursor: "pointer",
+  color: "white", textShadow: "0 0 10px white, 0 0 20px white", zIndex: 10000
+});
+document.body.appendChild(musicIcon);
+
+// Panel
+const musicPanel = document.createElement("div");
+Object.assign(musicPanel.style, {
+  position: "fixed", top: "50%", right: "40px", transform: "translateY(-50%)",
+  width: "280px", height: "420px", background: "#111", border: "3px solid",
+  borderRadius: "20px", padding: "10px", zIndex: 9999, display: "none",
+  color: "white", fontFamily: "Arial", boxShadow: "0 0 20px red"
+});
+document.body.appendChild(musicPanel);
+
+// RGB Kenarlık
+let hue = 0;
+setInterval(() => {
+  hue = (hue + 1) % 360;
+  musicPanel.style.borderColor = `hsl(${hue}, 100%, 50%)`;
+}, 100);
+
+// 🎵 Simgesiyle ve 0 tuşuyla aç/kapat
+let musicPanelVisible = false;
+function toggleMusicPanel() {
+  musicPanelVisible = !musicPanelVisible;
+  musicPanel.style.display = musicPanelVisible ? "block" : "none";
+}
+musicIcon.onclick = toggleMusicPanel;
+document.addEventListener("keydown", e => e.key === "0" && toggleMusicPanel());
+
+// Mevcut müzik listesi
+const songs = [
+  { title: "16-24", url: "/mnt/data/16-24.mp3" },
+  { title: "Seni Düşündüm", url: "/mnt/data/Çağla & Doğu Swag - Seni Düşündüm (Prod. by Büken).mp3" }
+];
+
+// Audio Player
+const audio = new Audio();
+audio.volume = 0.5;
+let currentSongIndex = 0;
+function loadSong(index) {
+  audio.src = songs[index].url;
+  audio.play();
+}
+
+// Şarkı kutusu (kaydırmalı)
+const songListBox = document.createElement("div");
+Object.assign(songListBox.style, {
+  maxHeight: "230px", overflowY: "auto", marginBottom: "10px", border: "1px solid #444", padding: "5px"
+});
+songs.forEach((song, index) => {
+  const btn = document.createElement("button");
+  btn.textContent = song.title;
+  Object.assign(btn.style, {
+    display: "block", width: "100%", margin: "5px 0", padding: "8px",
+    background: "#222", color: "white", border: "1px solid #fff", cursor: "pointer"
+  });
+  btn.onclick = () => {
+    currentSongIndex = index;
+    loadSong(index);
+  };
+  songListBox.appendChild(btn);
+});
+musicPanel.appendChild(songListBox);
+
+// Kontroller
+const controlBar = document.createElement("div");
+controlBar.style.display = "flex";
+controlBar.style.justifyContent = "space-between";
+controlBar.style.marginBottom = "10px";
+
+function createControlBtn(text, onClick) {
+  const btn = document.createElement("button");
+  btn.textContent = text;
+  Object.assign(btn.style, {
+    flex: "1", margin: "0 2px", padding: "5px",
+    background: "#333", color: "white", border: "1px solid white", cursor: "pointer"
+  });
+  btn.onclick = onClick;
+  return btn;
+}
+
+const playBtn = createControlBtn("▶️", () => audio.play());
+const pauseBtn = createControlBtn("⏸️", () => audio.pause());
+const loopBtn = createControlBtn("🔁", () => {
+  audio.loop = !audio.loop;
+  loopBtn.style.color = audio.loop ? 'lime' : 'white';
+});
+[playBtn, pauseBtn, loopBtn].forEach(btn => controlBar.appendChild(btn));
+musicPanel.appendChild(controlBar);
+
+// Ses kontrol slider
+const volumeLabel = document.createElement("div");
+volumeLabel.textContent = "🔉 Ses";
+volumeLabel.style.margin = "10px 0 4px";
+
+const volumeSlider = document.createElement("input");
+volumeSlider.type = "range";
+volumeSlider.min = 0;
+volumeSlider.max = 1;
+volumeSlider.step = 0.01;
+volumeSlider.value = audio.volume;
+volumeSlider.style.width = "100%";
+volumeSlider.oninput = () => audio.volume = parseFloat(volumeSlider.value);
+
+musicPanel.appendChild(volumeLabel);
+musicPanel.appendChild(volumeSlider);
+
+// İlk şarkı otomatik yüklensin
+loadSong(0);
+
+
+(function () {
+  let settings = {
+    scoreSystem: true,
+    goldNotification: true,
+    soundEnabled: true,
+    notificationDuration: 3000,
+  };
+
+  // 0 ile ayarlar panelini aç/kapat
+  let settingsVisible = false;
+  const panel = document.createElement('div');
+  panel.style = `
+    position: fixed;
+    top: 100px;
+    right: 20px;
+    background: #111;
+    border: 2px solid #0ff;
+    border-radius: 10px;
+    padding: 12px;
+    z-index: 0;
+    font-family: monospace;
+    font-size: 14px;
+    color: white;
+    display: none;
+  `;
+  panel.innerHTML = `
+    <label><input type="checkbox" id="toggleScore" checked> Skor Sistemi</label><br>
+    <label><input type="checkbox" id="toggleGold" checked> Gold Bildirimi</label><br>
+    <label><input type="checkbox" id="toggleSound" checked> Sesler</label><br>
+    <label>Bildirim Süresi: <input type="number" id="notifDuration" value="3000" style="width: 60px;"> ms</label>
+  `;
+  document.body.appendChild(panel);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '0') {
+      settingsVisible = !settingsVisible;
+      panel.style.display = settingsVisible ? 'block' : 'none';
+    }
+  });
+
+  // Panel değişikliklerini dinle
+  panel.addEventListener('input', () => {
+    settings.scoreSystem = document.getElementById('toggleScore').checked;
+    settings.goldNotification = document.getElementById('toggleGold').checked;
+    settings.soundEnabled = document.getElementById('toggleSound').checked;
+    settings.notificationDuration = parseInt(document.getElementById('notifDuration').value);
+  });
+
+  // Ölümde skor/gold bildirimi
+  let lastDeathScore = 0;
+  let lastDeathGold = 0;
+  let hasDied = false;
+
+  const deathNotice = document.createElement('div');
+  deathNotice.style = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: black;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 10px;
+    font-size: 20px;
+    font-weight: bold;
+    font-family: monospace;
+    z-index: 0;
+    display: none;
+    border: 2px solid red;
+    text-shadow: 0 0 5px red;
+  `;
+  document.body.appendChild(deathNotice);
+
+  function showDeathInfo(score, gold) {
+    if (!settings.scoreSystem) return;
+    deathNotice.textContent = `☠️ Son skorun: ${score.toLocaleString('tr-TR')} | Gold: ${gold.toLocaleString('tr-TR')}`;
+    deathNotice.style.display = 'block';
+    setTimeout(() => {
+      deathNotice.style.display = 'none';
+    }, settings.notificationDuration);
+  }
+
+  // Sürekli kontrol
+  setInterval(() => {
+    try {
+      if (typeof isDead !== "undefined" && isDead) {
+        if (!hasDied) {
+          hasDied = true;
+          showDeathInfo(userScore || 0, gold || 0);
+        }
+      } else {
+        hasDied = false;
+      }
+    } catch (e) {}
+  }, 500);
+})();
+
+(function () {
+  let settings = {
+    scoreSystem: true,
+    goldNotification: false, // BAŞLANGIÇTA KAPALI
+    soundEnabled: true,
+    notificationDuration: 3000,
+  };
+
+  // 0 ile ayarlar panelini aç/kapat
+  let settingsVisible = false;
+  const panel = document.createElement('div');
+  panel.style = `
+    position: fixed;
+    top: 100px;
+    right: 20px;
+    background: #111;
+    border: 2px solid #0ff;
+    border-radius: 10px;
+    padding: 12px;
+    z-index: 0;
+    font-family: monospace;
+    font-size: 14px;
+    color: white;
+    display: none;
+  `;
+  panel.innerHTML = `
+    <label><input type="checkbox" id="toggleScore" checked> Skor Sistemi</label><br>
+    <label><input type="checkbox" id="toggleGold"> Gold Bildirimi</label><br>
+    <label><input type="checkbox" id="toggleSound" checked> Sesler</label><br>
+    <label>Bildirim Süresi: <input type="number" id="notifDuration" value="3000" style="width: 60px;"> ms</label>
+  `;
+  document.body.appendChild(panel);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '0') {
+      settingsVisible = !settingsVisible;
+      panel.style.display = settingsVisible ? 'block' : 'none';
+    }
+    if (e.key === '6') {
+      settings.goldNotification = !settings.goldNotification;
+      document.getElementById('toggleGold').checked = settings.goldNotification;
+      if (!settings.goldNotification && goldDiv) {
+        goldDiv.remove();
+        goldDiv = null;
+      }
+    }
+  });
+
+  // Panel değişikliklerini dinle
+  panel.addEventListener('input', () => {
+    settings.scoreSystem = document.getElementById('toggleScore').checked;
+    settings.goldNotification = document.getElementById('toggleGold').checked;
+    settings.soundEnabled = document.getElementById('toggleSound').checked;
+    settings.notificationDuration = parseInt(document.getElementById('notifDuration').value);
+  });
+
+  // Ölümde skor/gold bildirimi
+  let lastDeathScore = 0;
+  let lastDeathGold = 0;
+  let hasDied = false;
+
+  const deathNotice = document.createElement('div');
+  deathNotice.style = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: black;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 10px;
+    font-size: 20px;
+    font-weight: bold;
+    font-family: monospace;
+    z-index: 0;
+    display: none;
+    border: 2px solid red;
+    text-shadow: 0 0 5px red;
+  `;
+  document.body.appendChild(deathNotice);
+
+  function showDeathInfo(score, gold) {
+    if (!settings.scoreSystem) return;
+    deathNotice.textContent = `☠️ Son skorun: ${score.toLocaleString('tr-TR')} | Gold: ${gold.toLocaleString('tr-TR')}`;
+    deathNotice.style.display = 'block';
+    setTimeout(() => {
+      deathNotice.style.display = 'none';
+    }, settings.notificationDuration);
+  }
+
+  // Ölüm kontrolü
+  setInterval(() => {
+    try {
+      if (typeof isDead !== "undefined" && isDead) {
+        if (!hasDied) {
+          hasDied = true;
+          showDeathInfo(userScore || 0, gold || 0);
+        }
+      } else {
+        hasDied = false;
+      }
+    } catch (e) {}
+  }, 500);
+
+  // Gold değişim bildirimi
+  let previousGold = typeof gold !== "undefined" ? gold : 0;
+  let goldDiv = null;
+  let removeTimer = null;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes flash {
+      from { opacity: 1; }
+      to { opacity: 0.2; }
+    }`;
+  document.head.appendChild(style);
+
+  function showGoldChange(amount, isIncrease) {
+    if (!settings.goldNotification) return;
+    if (goldDiv) goldDiv.remove();
+    if (removeTimer) clearTimeout(removeTimer);
+
+    goldDiv = document.createElement('div');
+    goldDiv.textContent = (isIncrease ? '+' : '-') + amount.toLocaleString('tr-TR') + ' Gold';
+    goldDiv.style.position = 'fixed';
+    goldDiv.style.top = '200px';
+    goldDiv.style.left = '50%';
+    goldDiv.style.transform = 'translateX(-50%)';
+    goldDiv.style.fontSize = '28px';
+    goldDiv.style.fontWeight = 'bold';
+    goldDiv.style.color = isIncrease ? '#39FF14' : '#FF3131';
+    goldDiv.style.textShadow = `0 0 10px ${goldDiv.style.color}, 0 0 20px ${goldDiv.style.color}`;
+    goldDiv.style.zIndex = 9999;
+    goldDiv.style.animation = 'flash 0.5s infinite alternate';
+    document.body.appendChild(goldDiv);
+
+    removeTimer = setTimeout(() => {
+      if (goldDiv) {
+        goldDiv.remove();
+        goldDiv = null;
+      }
+    }, 9400);
+  }
+
+  setInterval(() => {
+    if (!settings.goldNotification) return;
+    const currentGold = gold;
+    if (currentGold > previousGold) {
+      showGoldChange(currentGold - previousGold, true);
+    } else if (currentGold < previousGold) {
+      showGoldChange(previousGold - currentGold, false);
+    }
+    previousGold = currentGold;
+  }, 300);
+})();
+
+(function () {
+  document.getElementById("hizliTuslarPaneli")?.remove();
+  document.getElementById("hizliBildirim")?.remove();
+
+  const style = document.createElement("style");
+  style.innerHTML = `
+    @keyframes rgbBorder {
+      0% { box-shadow: 0 0 10px red; }
+      33% { box-shadow: 0 0 10px lime; }
+      66% { box-shadow: 0 0 10px blue; }
+      100% { box-shadow: 0 0 10px red; }
+    }
+
+    @keyframes neonKirmizi {
+      0%, 100% { color: red; text-shadow: 0 0 5px red, 0 0 10px red; }
+      50% { color: darkred; text-shadow: 0 0 5px darkred; }
+    }
+
+    @keyframes neonYesil {
+      0%, 100% { color: lime; text-shadow: 0 0 5px lime, 0 0 10px lime; }
+    }
+
+    .rgb-border { animation: rgbBorder 3s linear infinite; }
+    .neon-kirmizi { animation: neonKirmizi 1s infinite; }
+    .neon-yesil { animation: neonYesil 1s infinite; }
+  `;
+  document.head.appendChild(style);
+
+  const bildirim = document.createElement("div");
+  bildirim.id = "hizliBildirim";
+  Object.assign(bildirim.style, {
+    position: "fixed",
+    top: "150px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: 99999,
+    fontSize: "20px",
+    fontWeight: "bold",
+    textAlign: "center",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(bildirim);
+
+  function gosterBildirim(text, sinif) {
+    bildirim.textContent = text;
+    bildirim.className = sinif;
+    setTimeout(() => {
+      bildirim.textContent = "";
+      bildirim.className = "";
+    }, 10000);
+  }
+
+  function ayarlaKutucuk(input, label, ozellikAdi) {
+    function guncelleRenk() {
+      if (input.checked) {
+        label.className = "neon-yesil";
+        gosterBildirim(`${ozellikAdi} AKTİF`, "neon-yesil");
+      } else {
+        label.className = "neon-kirmizi";
+        gosterBildirim(`${ozellikAdi} PASİF`, "neon-kirmizi");
+      }
+    }
+    input.addEventListener("change", guncelleRenk);
+    guncelleRenk();
+  }
+
+  const panel = document.createElement("div");
+  panel.id = "hizliTuslarPaneli";
+  Object.assign(panel.style, {
+    position: "fixed",
+    bottom: "350px",
+    left: "10px",
+    background: "rgba(0,0,0,0.7)",
+    padding: "10px",
+    borderRadius: "10px",
+    zIndex: 9999,
+    color: "white",
+    fontSize: "14px",
+    minWidth: "180px",
+    display: "none",
+  });
+  panel.classList.add("rgb-border");
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.innerText = "⚡ Hızlı Tuşlar";
+  Object.assign(toggleBtn.style, {
+    position: "fixed",
+    bottom: "310px",
+    left: "10px",
+    background: "#111",
+    color: "white",
+    padding: "8px 14px",
+    border: "1px solid white",
+    borderRadius: "10px",
+    cursor: "pointer",
+    zIndex: 0,
+    boxShadow: "0 0 10px cyan",
+  });
+  toggleBtn.onclick = () => {
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+  };
+
+  function olusturKutucuk(id, text) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.id = id;
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(" " + text));
+    label.style.display = "block";
+    label.style.marginBottom = "6px";
+    panel.appendChild(label);
+    return { input, label };
+  }
+
+  const space = olusturKutucuk("spaceToggle", "Hızlı Space (Y)");
+  const yem = olusturKutucuk("yemToggle", "Hızlı Yem (E)");
+  const gold = olusturKutucuk("goldToggle", "Hızlı Gold (X)");
+
+  ayarlaKutucuk(space.input, space.label, "HIZLI SPACE");
+  ayarlaKutucuk(yem.input, yem.label, "HIZLI YEM");
+  ayarlaKutucuk(gold.input, gold.label, "HIZLI GOLD");
+
+  document.body.appendChild(panel);
+  document.body.appendChild(toggleBtn);
+
+  // Tuş simülasyonu
+  function simulateKey(key) {
+    const down = new KeyboardEvent("keydown", {
+      key,
+      code: key,
+      keyCode: key.charCodeAt(0),
+      which: key.charCodeAt(0),
+      bubbles: true,
+    });
+    const up = new KeyboardEvent("keyup", {
+      key,
+      code: key,
+      keyCode: key.charCodeAt(0),
+      which: key.charCodeAt(0),
+      bubbles: true,
+    });
+    window.dispatchEvent(down);
+    window.dispatchEvent(up);
+  }
+
+  // Tuş dinleyici
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+
+    if (key === "y" && space.input.checked) {
+      e.preventDefault();
+      simulateKey(" ");
+      setTimeout(() => simulateKey(" "), 20);
+    }
+
+    if (key === "e" && yem.input.checked) {
+      e.preventDefault();
+      simulateKey("e");
+      setTimeout(() => simulateKey("w"), 20);
+    }
+
+    if (key === "x" && gold.input.checked) {
+      e.preventDefault();
+      simulateKey("x");
+      setTimeout(() => simulateKey("z"), 20);
+    }
+  });
+})();
+const bgImage = new Image();
+bgImage.src = "https://i.hizliresim.com/ni0gvhw.png";
+
+const originalFillRect = CanvasRenderingContext2D.prototype.fillRect;
+
+bgImage.onload = () => {
+  CanvasRenderingContext2D.prototype.fillRect = function (x, y, w, h) {
+    const isFullCanvas =
+      x === 0 &&
+      y === 0 &&
+      w === this.canvas.width &&
+      h === this.canvas.height;
+
+    if (isFullCanvas) {
+      try {
+        this.drawImage(bgImage, 0, 0, this.canvas.width, this.canvas.height);
+        return; // Resim çizildi, fillRect'e gerek yok
+      } catch (e) {
+        console.error("Arka plan resmi çizilemedi:", e);
+      }
+    }
+
+    // Diğer fillRect'ler normal çalışsın
+    return originalFillRect.call(this, x, y, w, h);
+  };
+};
+
+(function () {
+  const canvas = document.querySelector("canvas");
+  const ctx = canvas?.getContext("2d");
+
+  if (!canvas || !ctx) {
+    console.error("Canvas veya context bulunamadı.");
+    return;
+  }
+
+  // Gökkuşağı gradient oluştur
+  const rainbow = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  rainbow.addColorStop(0.0, "red");
+  rainbow.addColorStop(0.17, "orange");
+  rainbow.addColorStop(0.34, "yellow");
+  rainbow.addColorStop(0.51, "green");
+  rainbow.addColorStop(0.68, "blue");
+  rainbow.addColorStop(0.85, "indigo");
+  rainbow.addColorStop(1.0, "violet");
+
+  // strokeStyle override
+  const originalStroke = CanvasRenderingContext2D.prototype.stroke;
+  CanvasRenderingContext2D.prototype.stroke = function () {
+    // Eğer çizilen alan ızgara ise uygulansın
+    if (this.lineWidth === 2 || this.lineWidth === 1) {
+      this.strokeStyle = rainbow;
+    }
+    return originalStroke.apply(this, arguments);
+  };
+})();
+
+(function () {
+  "use strict";
+  var meaningful_var_212 = document.getElementsByTagName("img");
+  var meaningful_var_243 = 0;
+  while (meaningful_var_243 < meaningful_var_212.length) {
+    if (meaningful_var_212[meaningful_var_243].src == "https://agarz.com/banner.png") {
+      meaningful_var_212[meaningful_var_243].src = resim;
+    }
+    meaningful_var_243 = meaningful_var_243 + 1;
+  }
+  $("title").text("Agarz ");
+  const meaningful_var_227 = {
+    cellLineWidth: 3,
+    virusLineWidth: 18,
+    cellBorderColor: "#fff",
+    virusFillColor: "#00B9E8",
+    virusStrokeColor: "#61DFFF"
+  };
+  const meaningful_var_78 = {
+    cellLineWidth: localStorage.getItem("cellLineWidth") || meaningful_var_227.cellLineWidth,
+    virusLineWidth: localStorage.getItem("virusLineWidth") || meaningful_var_227.virusLineWidth,
+    cellBorderColor: localStorage.getItem("cellBorderColor") || meaningful_var_227.cellBorderColor,
+    virusFillColor: localStorage.getItem("virusFillColor") || meaningful_var_227.virusFillColor,
+    virusStrokeColor: localStorage.getItem("virusStrokeColor") || meaningful_var_227.virusStrokeColor
+  };
+  cameraManager.onSendStart = function () {};
+  const meaningful_var_23 = document.createElement("div");
+  meaningful_var_23.id = "settingsPanel";
+  meaningful_var_23.style.position = "absolute";
+  meaningful_var_23.style.top = "41%";
+  meaningful_var_23.style.left = "13%";
+  meaningful_var_23.style.transform = "translateY(-50%)";
+  meaningful_var_23.style.backgroundColor = "black";
+  meaningful_var_23.style.color = "white";
+  meaningful_var_23.style.padding = "10px";
+  meaningful_var_23.style.border = "2px solid white";
+  meaningful_var_23.style.borderRadius = "15px";
+  meaningful_var_23.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.1)";
+  meaningful_var_23.style.display = "none";
+  meaningful_var_23.style.zIndex = "1";
+  meaningful_var_23.style.width = "250px";
+  document.body.appendChild(meaningful_var_23);
+  document.addEventListener("keydown", function (meaningful_var_237) {
+    if (meaningful_var_237.key === oyunayarlari) {
+      if (meaningful_var_23.style.display === "none") {
+        meaningful_var_23.style.display = "block";
+      } else {
+        meaningful_var_23.style.display = "none";
+      }
+    }
+  });
+  const meaningful_var_20 = document.createElement("button");
+  meaningful_var_20.style.textShadow = "rgb(255, 255, 255) 0px 0px 10px, rgb(0, 0, 0) 0px 0px 0px, rgb(255, 255, 255) 0px 0px 30px";
+  meaningful_var_20.innerText = "Ayar Paneli-2";
+  meaningful_var_20.style.position = "absolute";
+  meaningful_var_20.style.left = "-1000px";
+  meaningful_var_20.style.fontSize = "13px";
+  meaningful_var_20.style.transform = "scaleY(0.9)";
+  meaningful_var_20.style.transformOrigin = "center top";
+  meaningful_var_20.style.width = "97px";
+  meaningful_var_20.style.top = "53.3%";
+  meaningful_var_20.style.backgroundColor = "transparent";
+  meaningful_var_20.style.color = "white";
+  meaningful_var_20.style.border = "2px solid white";
+  meaningful_var_20.style.borderRadius = "15px";
+  meaningful_var_20.style.padding = "5px";
+  meaningful_var_20.style.cursor = "pointer";
+  meaningful_var_20.style.zIndex = "1";
+  document.body.appendChild(meaningful_var_20);
+  document.addEventListener("keydown", function (meaningful_var_276) {
+    if (meaningful_var_276.key === butongizleme) {
+      if (meaningful_var_20.style.display === "none") {
+        meaningful_var_20.style.display = "block";
+      } else {
+        meaningful_var_20.style.display = "none";
+      }
+    }
+  });
+  meaningful_var_20.addEventListener("mouseover", function () {
+    meaningful_var_20.style.backgroundColor = "rgba(255, 0, 0, 0.7)";
+  });
+  meaningful_var_20.addEventListener("mouseout", function () {
+    meaningful_var_20.style.backgroundColor = "transparent";
+  });
+  meaningful_var_20.addEventListener("mouseout", function () {
+    meaningful_var_20.style.backgroundColor = "transparent";
+  });
+  meaningful_var_20.addEventListener("click", function () {
+    meaningful_var_23.style.display = meaningful_var_23.style.display === "none" ? "block" : "none";
+  });
+  const meaningful_var_90 = document.createElement("h3");
+  meaningful_var_90.innerText = "️Oyun Ayarları️";
+  meaningful_var_90.style.margin = "0 0 10px 0";
+  meaningful_var_90.style.fontFamily = "fantasy";
+  meaningful_var_90.style.color = "red";
+  meaningful_var_23.appendChild(meaningful_var_90);
+  function meaningful_var_76(meaningful_var_166, meaningful_var_195, meaningful_var_161) {
+    const meaningful_var_145 = document.createElement("div");
+    meaningful_var_145.style.display = "flex";
+    meaningful_var_145.style.alignItems = "center";
+    meaningful_var_145.style.marginBottom = "10px";
+    const meaningful_var_292 = document.createElement("label");
+    meaningful_var_292.innerText = meaningful_var_166;
+    meaningful_var_292.style.flex = "none";
+    meaningful_var_145.appendChild(meaningful_var_292);
+    const meaningful_var_136 = document.createElement("div");
+    meaningful_var_136.style.flex = "none";
+    meaningful_var_136.style.display = "flex";
+    meaningful_var_136.style.alignItems = "center";
+    meaningful_var_195.style.marginRight = "10px";
+    meaningful_var_136.appendChild(meaningful_var_195);
+    meaningful_var_136.appendChild(meaningful_var_161);
+    meaningful_var_145.appendChild(meaningful_var_136);
+    meaningful_var_23.appendChild(meaningful_var_145);
+  }
+  const meaningful_var_220 = document.createElement("input");
+  meaningful_var_220.type = "range";
+  meaningful_var_220.min = 1;
+  meaningful_var_220.max = 7;
+  meaningful_var_220.value = meaningful_var_78.cellLineWidth;
+  meaningful_var_220.style.width = "60%";
+  const meaningful_var_33 = document.createElement("span");
+  meaningful_var_33.innerText = meaningful_var_78.cellLineWidth;
+  meaningful_var_76("Kenar Kalınlıı: ", meaningful_var_220, meaningful_var_33);
+  const meaningful_var_98 = document.createElement("input");
+  meaningful_var_98.type = "range";
+  meaningful_var_98.min = 1;
+  meaningful_var_98.max = 25;
+  meaningful_var_98.value = meaningful_var_78.virusLineWidth;
+  meaningful_var_98.style.width = "60%";
+  const meaningful_var_112 = document.createElement("span");
+  meaningful_var_112.innerText = meaningful_var_78.virusLineWidth;
+  meaningful_var_76("Diken Kalınlıı: ", meaningful_var_98, meaningful_var_112);
+  const meaningful_var_267 = document.createElement("input");
+  meaningful_var_267.type = "color";
+  meaningful_var_267.value = meaningful_var_78.cellBorderColor;
+  meaningful_var_76("Oyuncu Kenar Rengi: ", meaningful_var_267, document.createElement("span"));
+  const meaningful_var_125 = document.createElement("input");
+  meaningful_var_125.type = "color";
+  meaningful_var_125.value = meaningful_var_78.virusFillColor;
+  meaningful_var_76("Diken İç Rengi: ", meaningful_var_125, document.createElement("span"));
+  const meaningful_var_65 = document.createElement("input");
+  meaningful_var_65.type = "color";
+  meaningful_var_65.value = meaningful_var_78.virusStrokeColor;
+  meaningful_var_76("Diken Kenar Rengi: ", meaningful_var_65, document.createElement("span"));
+  const meaningful_var_261 = document.createElement("button");
+  meaningful_var_261.innerText = "Renkleri Sıfırla";
+  meaningful_var_261.style.marginTop = "10px";
+  meaningful_var_261.style.width = "100%";
+  meaningful_var_261.style.padding = "5px";
+  meaningful_var_261.style.border = "2px solid white";
+  meaningful_var_261.style.borderRadius = "5px";
+  meaningful_var_261.style.backgroundColor = "red";
+  meaningful_var_261.style.color = "white";
+  meaningful_var_261.style.cursor = "pointer";
+  meaningful_var_23.appendChild(meaningful_var_261);
+  meaningful_var_261.addEventListener("click", function () {
+    meaningful_var_78.cellBorderColor = meaningful_var_227.cellBorderColor;
+    meaningful_var_78.virusFillColor = meaningful_var_227.virusFillColor;
+    meaningful_var_78.virusStrokeColor = meaningful_var_227.virusStrokeColor;
+    meaningful_var_267.value = meaningful_var_227.cellBorderColor;
+    meaningful_var_125.value = meaningful_var_227.virusFillColor;
+    meaningful_var_65.value = meaningful_var_227.virusStrokeColor;
+    localStorage.setItem("cellBorderColor", meaningful_var_227.cellBorderColor);
+    localStorage.setItem("virusFillColor", meaningful_var_227.virusFillColor);
+    localStorage.setItem("virusStrokeColor", meaningful_var_227.virusStrokeColor);
+    meaningful_var_217();
+  });
+  meaningful_var_220.addEventListener("input", function () {
+    meaningful_var_78.cellLineWidth = this.value;
+    meaningful_var_33.innerText = this.value;
+    localStorage.setItem("cellLineWidth", this.value);
+    meaningful_var_217();
+  });
+  meaningful_var_98.addEventListener("input", function () {
+    meaningful_var_78.virusLineWidth = this.value;
+    meaningful_var_112.innerText = this.value;
+    localStorage.setItem("virusLineWidth", this.value);
+    meaningful_var_217();
+  });
+  meaningful_var_267.addEventListener("input", function () {
+    meaningful_var_78.cellBorderColor = this.value;
+    localStorage.setItem("cellBorderColor", this.value);
+    meaningful_var_217();
+  });
+  meaningful_var_125.addEventListener("input", function () {
+    meaningful_var_78.virusFillColor = this.value;
+    localStorage.setItem("virusFillColor", this.value);
+    meaningful_var_217();
+  });
+  meaningful_var_65.addEventListener("input", function () {
+    meaningful_var_78.virusStrokeColor = this.value;
+    localStorage.setItem("virusStrokeColor", this.value);
+    meaningful_var_217();
+  });
+  function meaningful_var_217() {
+    if (typeof cellManager !== "undefined" && cellManager.updateAndDraw) {
+      cellManager.updateAndDraw = function () {
+        var meaningful_var_137 = [];
+        var meaningful_var_16 = fpsManager.getDeltaTime();
+        for (var meaningful_var_102 = 0; meaningful_var_102 < this.cellList.length; meaningful_var_102++) {
+          var meaningful_var_283 = this.cellList[meaningful_var_102];
+          if ((meaningful_var_283.cellType === 1 || meaningful_var_283.cellType === 3) && meaningful_var_16 > 100) {} else {
+            meaningful_var_283.updatePos();
+            meaningful_var_283.drawOneCell();
+            if (spectatorId === meaningful_var_283.pID || playerId === meaningful_var_283.pID) {
+              if (options.get("drawEdge")) {
+                meaningful_var_137.push(meaningful_var_283);
+              }
+            }
+          }
+        }
+        switch (renderMode) {
+          case 1:
+            ctx.strokeStyle = meaningful_var_78.cellBorderColor;
+            ctx.lineWidth = meaningful_var_78.cellLineWidth / cameraManager.scale;
+            for (var meaningful_var_148 = 0; meaningful_var_148 < meaningful_var_137.length; meaningful_var_148++) {
+              if (meaningful_var_137[meaningful_var_148].size_draw >= 0) {
+                ctx.beginPath();
+                ctx.arc(meaningful_var_137[meaningful_var_148].x_draw, meaningful_var_137[meaningful_var_148].y_draw, meaningful_var_137[meaningful_var_148].size_draw, 0, Math.PI * 2, false);
+                ctx.stroke();
+              }
+            }
+            break;
+          case 2:
+            for (var meaningful_var_74 = 0; meaningful_var_74 < meaningful_var_137.length; meaningful_var_74++) {
+              prog_cell.drawLine(meaningful_var_137[meaningful_var_74]);
+            }
+            break;
+        }
+      };
+    }
+    if (typeof window.Cell !== "undefined" && typeof window.Cell.prototype !== "undefined") {
+      const meaningful_var_81 = window.Cell.prototype.drawOneCell_virus_ctx;
+      window.Cell.prototype.drawOneCell_virus_ctx = function () {
+        if (options.get("transparentRender") === true) {
+          ctx.globalAlpha = 0.3;
+        } else {
+          ctx.globalAlpha = 0.1;
+        }
+        const meaningful_var_15 = fpsManager.getDeltaTime();
+        ctx.fillStyle = meaningful_var_78.virusFillColor;
+        ctx.strokeStyle = meaningful_var_78.virusStrokeColor;
+        if (options.get("simpleGreen") === true || meaningful_var_15 > 50) {
+          this.drawSimple(ctx);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          ctx.lineWidth = meaningful_var_78.virusLineWidth;
+          ctx.stroke();
+        } else {
+          this.movePoints();
+          this.drawFancy(ctx);
+          ctx.lineWidth = meaningful_var_78.virusLineWidth;
+          ctx.stroke();
+          ctx.fill();
+        }
+      };
+    }
+  }
+  meaningful_var_217();
+  (function () {
+    'use strict';
+
+    function meaningful_var_178() {
+      const meaningful_var_117 = window.drawTopMessage;
+      window.drawTopMessage = function (meaningful_var_24, meaningful_var_196) {
+        const meaningful_var_242 = 25;
+        meaningful_var_117.call(this, meaningful_var_24, meaningful_var_242);
+      };
+    }
+    window.addEventListener("load", function () {
+      setTimeout(meaningful_var_178, 1000);
+    });
+    function meaningful_var_8() {
+      const meaningful_var_22 = document.querySelector("a[onclick=\"return fb_popup_show();\"]");
+      if (meaningful_var_22) {
+        meaningful_var_22.parentNode.removeChild(meaningful_var_22);
+      }
+    }
+    function meaningful_var_99() {
+      const meaningful_var_225 = document.querySelectorAll("br");
+      meaningful_var_225.forEach(meaningful_var_170 => {
+        const meaningful_var_162 = meaningful_var_170.textContent.trim();
+        if (meaningful_var_162.includes("[") && meaningful_var_162.includes("]")) {
+          meaningful_var_170.parentNode.removeChild(meaningful_var_170);
+        }
+      });
+    }
+    meaningful_var_8();
+    meaningful_var_99();
+    const meaningful_var_48 = new MutationObserver(function (meaningful_var_226) {
+      meaningful_var_226.forEach(function (meaningful_var_13) {
+        meaningful_var_13.addedNodes.forEach(function (meaningful_var_258) {
+          if (meaningful_var_258.nodeType === 1 && meaningful_var_258.matches("a[onclick=\"return fb_popup_show();\"]")) {
+            meaningful_var_258.parentNode.removeChild(meaningful_var_258);
+          }
+          meaningful_var_99();
+        });
+      });
+    });
+    const meaningful_var_193 = {
+      childList: true,
+      subtree: true
+    };
+    meaningful_var_48.observe(document.body, meaningful_var_193);
+  })();
+  $("#instructions").hide();
+  document.querySelector("#settings > div:nth-child(2)").remove();
+  $("#oynamaBtn").hide();
+  $("#idUyari").remove();
+  $("#idBottomInfo").remove();
+  $("#mainform").remove();
+  $("#idYayin").remove();
+  $("#idGooglePlay").remove();
+  $("#idGooglePlay").remove();
+  $("#soundContainer").hide();
+  $("#FfagzleBtn").remove();
+  $("#bothackBtn").hide();
+  $("#showMessageOverlays").remove();
+  $("#showMessageDialog").remove();
+  $("#showMessageTxt").remove();
+  $("#showMessageOk").remove();
+  $("a.form-control.btn.btn-info").remove();
+  $("both").remove();
+  $("#idDiscord").remove();
+  const meaningful_var_214 = document.createElement("div");
+  meaningful_var_214.style.textAlign = "center";
+  meaningful_var_214.style.color = "white";
+  meaningful_var_214.style.fontSize = "10px";
+  meaningful_var_214.style.backgroundColor = "transparent";
+  meaningful_var_214.style.borderRadius = "15px";
+  meaningful_var_214.style.fontFamily = "fantasy";
+  meaningful_var_214.innerText = "Coded By Waless";
+  meaningful_var_214.style.textShadow = "0 0 10px #ffffff, 0 0 20px #000000, 0 0 30px #ffffff";
+  document.getElementById("helloDialog").appendChild(meaningful_var_214);
+  const meaningful_var_167 = document.getElementById("yesno_settings");
+  const meaningful_var_43 = meaningful_var_167.getElementsByTagName("label");
+
+
+  chatManager.CHAT_FONT = "16px ubuntu";
+  chatManager.CHAT_FONTSIZE = 16;
+  chatManager.CHAT_FONT_BOLD = "16px ubuntu";
+  chatManager.CHAT_SOLID = "15px";
+  function meaningful_var_52(meaningful_var_68) {
+    var meaningful_var_218;
+    var meaningful_var_259;
+    meaningful_var_218 = document.getElementsByTagName("head")[0];
+    if (!meaningful_var_218) {
+      return;
+    }
+    meaningful_var_259 = document.createElement("style");
+    meaningful_var_259.type = "text/css";
+    meaningful_var_259.innerHTML = meaningful_var_68;
+    meaningful_var_218.appendChild(meaningful_var_259);
+  }
+  meaningful_var_52("body > div:nth-child(17) > input[type=button] { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("body > div:nth-child(17) > select { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#sikayetContainer > input[type=button] { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#toggleBtn { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#idTwitch { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#idTwitch > button { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#chat_textbox { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#playBtn {  color: white;background-color:rgb(0 0 0 / 0%);}&apos; #000000;border-color: #000000;");
+  meaningful_var_52("#chatInputContainer {text-shadow:rgb(0, 0, 0) 0px 0px 10px, rgb(255 255 255) 0px 0px 9px, rgb(255 255 255) 0px 0px 0px;");
+  meaningful_var_52("button, html input[type=button], input[type=reset], input[type=submit] {border-radius: 25px");
+  meaningful_var_52("a:focus,a:hover {color:red;text-decoration:underline;");
+  meaningful_var_52("#idUserContainer { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#idSolMenu { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#helloDialog { background-image: url('https://i.hizliresim.com/jmawh8v.png');}&apos; #000000;");
+  meaningful_var_52("#idTwitch {background-color: #00000000;top: 9%;border-radius: 14px;font-family: Ubuntu");
+  meaningful_var_52("#idDiscord {border-radius: 14px;font-family: Ubuntu;");
+  meaningful_var_52("body {font-family: Ubuntu;color:white;");
+  meaningful_var_52(".btn-play {border-radius: 15px;");
+  meaningful_var_52("#spectateBtn {width:100%;border-radius: 100px;");
+  meaningful_var_52("#replayBtn {width: 100%;border-radius: 100px;");
+  meaningful_var_52("a {color: #ffffff;");
+  meaningful_var_52("#myTeam { width: 100%;");
+  meaningful_var_52("#finalLeaderboardDialog { background-color: #000000;");
+  meaningful_var_52("#enterPriceConfirmDialog {background-color: #000000;");
+  meaningful_var_52(".btn-primary { background-color: #000000;border-color: #000000;");
+  meaningful_var_52(".btn-warning {background-color: #000000;border-color: #000000;");
+  meaningful_var_52("#gamemode { width:35%; background-color: black;");
+  meaningful_var_52("#nick, #locationKnown #region { width: 65%;");
+  meaningful_var_52("#txtSkin {width: 100%;");
+  meaningful_var_52(".btn-warning.active, .btn-warning.focus, .btn-warning:active, .btn-warning:focus, .btn-warning:hover, .open>.dropdown-toggle.btn-warning {  background-color: #00c718;border-color: #ffffff;");
+  meaningful_var_52("#spectateBtn {background-color:rgb(0 0 0 / 0%);}&apos; #000000;border-color: #000000;color: white;width:100%;");
+  meaningful_var_52("#replayBtn {background-color:rgb(0 0 0 / 0%);}&apos; #000000;border-color: #000000;color: white;width:100%;");
+  meaningful_var_52(".myDialog {    background-color: #000000;");
+  meaningful_var_52(".isim-link {background-color: #404040;");
+  meaningful_var_52(".isim-popup {background-color: #000;border: 3px solid #fff;");
+  meaningful_var_52(".skin-popup {background-image: url(https://i.hizliresim.com/bmpo0fd.gif);background-color: #000000;border: solid 3px;");
+  meaningful_var_52(".btn-primary.active, .btn-primary.focus, .btn-primary:active, .btn-primary:focus, .btn-primary:hover, .open>.dropdown-toggle.btn-primary {background-color: #ff0000;border-color:white;");
+  meaningful_var_52(".form-control {    height: 32px;color:white;border-radius:15px;background-color:transparent;");
+  meaningful_var_52(".checkbox input[type=checkbox], .checkbox-inline input[type=checkbox], .radio input[type=radio], .radio-inline input[type=radio] {accent-color: red;");
+document.getElementById("playBtn").innerText = "┇ 𝐎𝐘𝐍𝐀 ┇";
+document.getElementById("spectateBtn").innerText = "┇ 𝐈̇𝐙𝐋𝐄 ┇";
+document.getElementById("replayBtn").innerText = "┇ 𝐓𝐄𝐊𝐑𝐀𝐑 ┇";
+  var meaningful_var_289;
+  var meaningful_var_75;
+  var meaningful_var_171 = 50;
+  function meaningful_var_29(meaningful_var_182) {
+    switch (meaningful_var_182.keyCode) {}
+    if (meaningful_var_182.keyCode == 32) {
+      meaningful_var_87();
+      setTimeout(meaningful_var_87, meaningful_var_171 * 2);
+    }
+    function meaningful_var_87() {
+      $("body").trigger($.Event("keydown", {
+        keyCode: 32
+      }));
+      $("body").trigger($.Event("keyup", {
+        keyCode: 32
+      }));
+    }
+  }
+})();
+window.addEventListener("load", function () {
+  var meaningful_var_215 = document.querySelector("a[onclick=\"return fb_popup_show();\"]");
+  if (meaningful_var_215) {
+    meaningful_var_215.parentNode.removeChild(meaningful_var_215);
+  }
+});
+window.addEventListener("load", function () {
+  var meaningful_var_62 = document.getElementById("helloDialog");
+  if (!meaningful_var_62) {
+    meaningful_var_62 = document.createElement("div");
+    meaningful_var_62.id = "helloDialog";
+    document.body.appendChild(meaningful_var_62);
+  }
+  var meaningful_var_127 = document.createElement("button");
+  meaningful_var_127.textContent = "Bonus Transferi ";
+  meaningful_var_127.style.marginBottom = "10px";
+  meaningful_var_127.style.fontSize = "15px";
+  meaningful_var_127.style.padding = "10px 17px";
+  meaningful_var_127.style.backgroundColor = "transparent";
+  meaningful_var_127.style.color = "white";
+  meaningful_var_127.style.border = "none";
+  meaningful_var_127.style.borderRadius = "25px";
+  meaningful_var_127.style.cursor = "pointer";
+  meaningful_var_127.style.position = "relative";
+  meaningful_var_127.style.left = "-162px";
+  meaningful_var_127.style.top = "-300px";
+  meaningful_var_127.style.transition = "background-color 0.3s, color 0.3s";
+  meaningful_var_127.style.backgroundImage = "url(https://i.hizliresim.com/jmawh8v.png)";
+  meaningful_var_127.addEventListener("mouseover", function () {
+    meaningful_var_127.style.backgroundColor = "#333";
+  });
+  meaningful_var_127.addEventListener("mouseout", function () {
+    meaningful_var_127.style.backgroundColor = "transparent";
+  });
+
+  var meaningful_var_18 = document.createElement("div");
+  meaningful_var_18.style.position = "fixed";
+  meaningful_var_18.style.top = "50%";
+  meaningful_var_18.style.left = "50%";
+  meaningful_var_18.style.transform = "translate(-50%, -50%)";
+  meaningful_var_18.style.display = "none";
+  meaningful_var_18.style.zIndex = "1000";
+  meaningful_var_18.style.backgroundColor = "black";
+  meaningful_var_18.style.padding = "20px";
+  meaningful_var_18.style.border = "1px solid #ccc";
+  meaningful_var_18.style.borderRadius = "5px";
+  meaningful_var_18.style.width = "600px";
+  meaningful_var_18.style.color = "#333";
+  meaningful_var_18.style.fontFamily = "Arial, sans-serif";
+  meaningful_var_18.style.backgroundImage = "url(https://i.hizliresim.com/jmawh8v.png)";
+  meaningful_var_18.style.overflow = "hidden";
+
+  var iframe = document.createElement("iframe");
+  iframe.src = "https://agarz.com/tr/home_bt/1000197";
+  iframe.style.width = "100%";
+  iframe.style.height = "400px";
+  iframe.style.border = "none";
+  iframe.style.borderRadius = "5px";
+  meaningful_var_18.appendChild(iframe);
+
+  meaningful_var_127.addEventListener("click", function () {
+    if (meaningful_var_18.style.display === "none") {
+      meaningful_var_18.style.display = "block";
+    } else {
+      meaningful_var_18.style.display = "none";
+    }
+  });
+
+  // Buraya tuşla açıp kapatma kodu eklendi
+  window.addEventListener("keydown", function (e) {
+    // e.key === '"' bazen farklı olabilir, onun yerine e.keyCode da kullanılabilir
+    // " tuşunun keyCode'su 222 (ABD QWERTY için)
+    if (e.key === '"' || e.keyCode === 222) {
+      if (meaningful_var_18.style.display === "none") {
+        meaningful_var_18.style.display = "block";
+      } else {
+        meaningful_var_18.style.display = "none";
+      }
+    }
+  });
+
+  meaningful_var_62.appendChild(meaningful_var_127);
+  meaningful_var_62.appendChild(meaningful_var_18);
+});
+let pressingH = false;
+let intervalID;
+let buttonVisible = true;
+const style = document.createElement("style");
+style.innerHTML = "\n        #toggleBtn {\n            position: fixed;\n            top: 520px;\n            right: 10px;\n            padding: 10px 20px;\n            background-color: #ff0000;\n            color: white;\n            border: solid 2px;\n            border-radius: 5px;\n            cursor: pointer;\n            font-size: 13px;\n            transition: background-color 0.3s, transform 0.3s;\n            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);\n        }\n\n        #toggleBtn.on {\n            background-color: #034f15;\n            transform: scale(1.1);\n        }\n\n        #toggleBtn:hover {\n            background-color: #0056b3;\n        }\n\n        #toggleBtn.on:hover {\n            background-color: #218838;\n        }\n    ";
+document.head.appendChild(style);
+const toggleBtn = document.createElement("button");
+toggleBtn.id = "toggleBtn";
+toggleBtn.textContent = "Start";
+document.body.appendChild(toggleBtn);
+function togglePressingH() {
+  pressingH = !pressingH;
+  if (pressingH) {
+    toggleBtn.textContent = "Hızlı Doma Aktif!";
+    toggleBtn.classList.add("on");
+    pressButtonInfinitely();
+  } else {
+    toggleBtn.textContent = "Kapatıldı!";
+    toggleBtn.classList.remove("on");
+    clearInterval(intervalID);
+  }
+}
+function toggleButtonVisibility() {
+  buttonVisible = !buttonVisible;
+  toggleBtn.style.display = buttonVisible ? "block" : "none";
+}
+toggleBtn.addEventListener("click", togglePressingH);
+document.addEventListener("keydown", function (meaningful_var_57) {
+  if (meaningful_var_57.key === süreklioyna && document.activeElement.tagName !== "INPUT") {
+    togglePressingH();
+  } else if (meaningful_var_57.key === süreklioynagizle && document.activeElement.tagName !== "INPUT") {
+    toggleButtonVisibility();
+  }
+});
+function pressButtonInfinitely() {
+  const meaningful_var_249 = document.querySelector("#playBtn");
+  if (meaningful_var_249) {
+    intervalID = setInterval(function () {
+      if (!pressingH) {
+        clearInterval(intervalID);
+      } else if (cellManager.playerCellList.length === 0) {
+        meaningful_var_249.click();
+      }
+    }, 10);
+  }
+}
+var buttonr = document.createElement("button");
+buttonr.innerText = "Ping Paylaş";
+buttonr.style.position = "absolute";
+buttonr.style.left = "0";
+buttonr.style.top = "-53.3%";
+buttonr.style.transform = "scaleY(0.9)";
+buttonr.style.transformOrigin = "center top";
+buttonr.style.backgroundColor = "transparent";
+buttonr.style.border = "2px solid";
+buttonr.style.borderColor = "white";
+buttonr.style.color = "white";
+buttonr.style.textShadow = "0 0 10px #ffffff, 0 0 0px #000000, 0 0 30px #ffffff";
+buttonr.style.padding = "5px";
+buttonr.style.cursor = "pointer";
+buttonr.style.borderRadius = "15px";
+buttonr.style.zIndex = "1";
+document.body.appendChild(buttonr);
+document.addEventListener("keydown", function (meaningful_var_272) {
+  if (meaningful_var_272.key === butongizleme) {
+    if (buttonr.style.display === "none") {
+      buttonr.style.display = "block";
+    } else {
+      buttonr.style.display = "none";
+    }
+  }
+});
+buttonr.addEventListener("mouseover", function () {
+  buttonr.style.backgroundColor = "rgba(255, 0, 0, 0.7";
+});
+buttonr.addEventListener("mouseout", function () {
+  buttonr.style.backgroundColor = "transparent";
+});
+buttonr.onclick = function () {
+  var meaningful_var_290 = getPing();
+  sendChat("Ping: " + meaningful_var_290 + " ms");
+  buttonr.blur();
+};
+function getPing() {
+  if (typeof ping_last !== "undefined") {
+    return ping_last;
+  } else if (typeof ping !== "undefined") {
+    return ping;
+  } else {
+    return "Bilinmiyor";
+  }
+}
+
+var ekle = $("#idUserDesktop");
+var newLink = document.createElement("a");
+newLink.innerHTML = "Ekp-1 Liste";
+newLink.innerColor = "red";
+newLink.setAttribute("id", "newLink");
+newLink.setAttribute("target", "_blank");
+newLink.setAttribute("href", "https://agarz.com/tr/golddetail/EKP-1");
+ekle.after(newLink);
+var brElement1 = document.createElement("br");
+ekle.after(brElement1);
+var ekle = $("#idUserDesktop");
+var newLink = document.createElement("a");
+newLink.innerHTML = "Klan Sistemim";
+newLink.innerColor = "red";
+newLink.setAttribute("id", "newLink");
+newLink.setAttribute("target", "_blank");
+newLink.setAttribute("href", "https://agarz.com/tr/clan/2816");
+ekle.after(newLink);
+var brElement1 = document.createElement("br");
+ekle.after(brElement1);
+var emrekage = document.createElement("a");
+emrekage.innerHTML = "Bonus Transferi";
+emrekage.innerColor = "red";
+emrekage.setAttribute("id", "newLink");
+emrekage.setAttribute("target", "_blank");
+emrekage.setAttribute("href", "https://agarz.com/tr/home_bt/1000197");
+ekle.after(emrekage);
+chatManager.CHAT_FONT = "16px ubuntu";
+chatManager.CHAT_FONTSIZE = 16;
+chatManager.CHAT_FONT_BOLD = "16px ubuntu";
+chatManager.CHAT_SOLID = "15px";
+var button1 = document.createElement("button");
+button1.innerText = "Skor Paylaş";
+button1.style.transform = "scaleY(0.9)";
+button1.style.transformOrigin = "center top";
+button1.style.position = "absolute";
+button1.style.left = "0";
+button1.style.transition = "all 0.3s ease";
+button1.style.top = "44.5%";
+button1.style.backgroundColor = "transparent";
+button1.style.border = "2px solid";
+button1.style.borderColor = "white";
+button1.style.color = "white";
+button1.style.textShadow = "0 0 10px #ffffff, 0 0 0px #000000, 0 0 30px #ffffff";
+button1.style.padding = "5px";
+button1.style.cursor = "pointer";
+button1.style.borderRadius = "15px";
+button1.style.zIndex = "1";
+document.body.appendChild(button1);
+button1.addEventListener("mouseover", function () {
+  button1.style.backgroundColor = "rgba(255, 0, 0, 0.7";
+});
+button1.addEventListener("mouseout", function () {
+  button1.style.backgroundColor = "transparent";
+});
+button1.onclick = function () {
+  sendChat("Skor: " + userScoreCurrent.dotFormat());
+  button.blur();
+};
+document.addEventListener("keydown", function (meaningful_var_246) {
+  if (meaningful_var_246.key === butongizleme) {
+    if (button1.style.display === "none") {
+      button1.style.display = "block";
+    } else {
+      button1.style.display = "none";
+    }
+  }
+});
+
+
+var buttonBt = document.createElement("button");
+buttonBt.innerHTML = `gold ekle`;
+buttonBt.style.transform = "scaleY(0.9)";
+buttonBt.style.transformOrigin = "center top";
+buttonBt.style.position = "absolute";
+buttonBt.style.left = "0";
+buttonBt.style.transition = "all 0.3s ease";
+buttonBt.style.top = "37%";
+buttonBt.style.backgroundColor = "transparent";
+buttonBt.style.border = "2px solid";
+buttonBt.style.borderColor = "white";
+buttonBt.style.color = "white";
+buttonBt.style.textShadow = "0 0 10px #ffffff, 0 0 0px #000000, 0 0 30px #ffffff";
+buttonBt.style.padding = "5px";
+buttonBt.style.cursor = "pointer";
+buttonBt.style.borderRadius = "15px";
+buttonBt.style.zIndex = "0";
+document.body.appendChild(buttonBt);
+
+buttonBt.addEventListener("mouseover", function () {
+  buttonBt.style.backgroundColor = "rgba(255, 0, 0, 0.7)";
+});
+buttonBt.addEventListener("mouseout", function () {
+  buttonBt.style.backgroundColor = "transparent";
+});
+buttonBt.onclick = function () {
+  if (typeof setChatText === "function" && typeof sendChat === "function") {
+    setChatText("-bt 100000");
+    setTimeout(() => {
+      sendChat("-bt 100000");
+
+      const chatInput = document.querySelector("#chatInput") || document.querySelector("input[type='text']");
+      if (chatInput) {
+        const enterEvent = new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13
+        });
+        chatInput.dispatchEvent(enterEvent);
+      }
+    }, 100);
+  } else {
+    console.warn("setChatText veya sendChat fonksiyonu bulunamadı!");
+  }
+  buttonBt.blur();
+};
+
+document.addEventListener("keydown", function (e) {
+  if (e.key === butongizleme && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
+    if (buttonBt.style.display === "none") {
+      buttonBt.style.display = "block";
+    } else {
+      buttonBt.style.display = "none";
+    }
+  }
+});
+var h1Element = document.createElement("h1");
+h1Element.style.fontFamily = "ubuntu";
+h1Element.style.fontSize = "2.2em";
+h1Element.style.color = "#ffffff";
+h1Element.style.textShadow = "rgb(0, 0, 0) 0px 0px 20px, rgb(140, 50, 255) 1px 0px 20px, rgb(140, 50, 255) 0px 0px 11px";
+h1Element.style.position = "absolute";
+h1Element.style.left = "50%";
+h1Element.style.top = "18%";
+h1Element.style.transform = "translate(-50%, -50%)";
+h1Element.style.zIndex = "1";
+h1Element.style.display = "none";
+document.body.appendChild(h1Element);
+let spectatorName = "Unknown";
+let spectatorScore = 0;
+let isVisible = true;
+function updateSpectatorInfo() {
+  if (playMode === PLAYMODE_SPECTATE) {
+    let meaningful_var_197 = 0;
+    cellManager.cellList.forEach(meaningful_var_238 => {
+      if (meaningful_var_238.pID === spectatorId) {
+        meaningful_var_197 += Math.floor(meaningful_var_238.size_new ** 2 / 100);
+        spectatorName = meaningful_var_238.name;
+      }
+    });
+    spectatorScore = meaningful_var_197;
+    h1Element.innerText = spectatorName + " ~ Skor: " + spectatorScore.dotFormat();
+  } else {
+    h1Element.innerText = "";
+  }
+}
+document.addEventListener("keydown", meaningful_var_229 => {
+  if (meaningful_var_229.key === izleyiciskor) {
+    isVisible = !isVisible;
+    h1Element.style.display = isVisible ? "block" : "none";
+  }
+});
+setInterval(updateSpectatorInfo, 1000);
+var totalScoreElement = document.createElement("h1");
+totalScoreElement.style.fontFamily = "Ubuntu";
+totalScoreElement.style.fontSize = "1.3em";
+totalScoreElement.style.color = "#ffffff";
+totalScoreElement.style.textShadow = "rgb(0, 0, 0) 0px 0px 20px, rgb(140, 50, 255) 1px 0px 20px, rgb(140, 50, 255) 0px 0px 11px";
+totalScoreElement.style.position = "absolute";
+totalScoreElement.style.left = "50%";
+totalScoreElement.style.top = "24%";
+totalScoreElement.style.transform = "translate(-50%, -50%)";
+totalScoreElement.style.zIndex = "1";
+totalScoreElement.style.cursor = "pointer";
+totalScoreElement.style.display = "none";
+document.body.appendChild(totalScoreElement);
+let totalScoreNew = 0;
+function updateTotalScore() {
+  if (playMode === PLAYMODE_PLAY) {
+    let meaningful_var_183 = 0;
+    cellManager.cellList.forEach(meaningful_var_115 => {
+      meaningful_var_183 += Math.floor(meaningful_var_115.size_new ** 2 / 100);
+    });
+    totalScoreNew = meaningful_var_183;
+    totalScoreElement.innerText = "FFA Skor: " + meaningful_var_183.dotFormat();
+  } else {
+    totalScoreElement.innerText = "";
+  }
+}
+totalScoreElement.addEventListener("click", function () {
+  sendChat("FFA Skor: " + totalScoreNew.dotFormat());
+});
+document.addEventListener("keydown", meaningful_var_169 => {
+  if (meaningful_var_169.key === ffatoplamskor) {
+    if (totalScoreElement.style.display === "none") {
+      totalScoreElement.style.display = "block";
+    } else {
+      totalScoreElement.style.display = "none";
+    }
+  }
+});
+setInterval(updateTotalScore, 1000);
+var button2 = document.createElement("button");
+button2.innerText = "Oyuncu S. P.";
+button2.style.position = "absolute";
+button2.style.left = "0%";
+button2.style.transform = "scaleY(0.9)";
+button2.style.transformOrigin = "center top";
+button2.style.top = "48%";
+button2.style.backgroundColor = "transparent";
+button2.style.border = "2px solid";
+button2.style.borderColor = "white";
+button2.style.color = "white";
+button2.style.textShadow = "rgb(255, 255, 255) 0px 0px 10px, rgb(0, 0, 0) 0px 0px 20px, rgb(255, 255, 255) 0px 0px 30px";
+button2.style.padding = "5px";
+button2.style.cursor = "pointer";
+button2.style.borderRadius = "15px";
+button2.style.zIndex = "1";
+document.body.appendChild(button2);
+button2.addEventListener("mouseover", function () {
+  button2.style.backgroundColor = "rgba(255, 0, 0, 0.7";
+});
+button2.addEventListener("mouseout", function () {
+  button2.style.backgroundColor = "transparent";
+});
+button2.onclick = function () {
+  sendChat(" " + spectatorName + " ~ Skor: " + spectatorScore.dotFormat());
+  button2.blur();
+};
+document.addEventListener("keydown", function (meaningful_var_53) {
+  if (meaningful_var_53.key === butongizleme) {
+    if (button2.style.display === "none") {
+      button2.style.display = "block";
+    } else {
+      button2.style.display = "none";
+    }
+  }
+});
+var ekle = $("#chat_textbox");
+var Nickdegistir = document.createElement("button");
+Nickdegistir.innerText = "İsim Düzenle";
+Nickdegistir.setAttribute("id", "Nickdegistir");
+Nickdegistir.style.transform = "scaleY(0.9)";
+Nickdegistir.style.transformOrigin = "center top";
+ekle.after(Nickdegistir);
+$("#Nickdegistir").click(() => {
+  let meaningful_var_132 = $("#nick");
+  let meaningful_var_234 = meaningful_var_132.val();
+  let meaningful_var_77 = prompt("Yeni isim giriniz.", meaningful_var_234);
+  if (meaningful_var_77 !== null && meaningful_var_77.trim() !== "") {
+    meaningful_var_132.val(meaningful_var_77);
+    onClickPlay();
+    setTimeout(() => {
+      onClickPlay();
+    }, 700);
+  }
+});
+Nickdegistir.addEventListener("mouseover", function () {
+  Nickdegistir.style.backgroundColor = "rgba(255, 0, 0, 0.7";
+});
+Nickdegistir.addEventListener("mouseout", function () {
+  Nickdegistir.style.backgroundColor = "transparent";
+});
+$("#Nickdegistir").css({
+  position: "fixed",
+  "font-size": "13px",
+  top: "-47.2%",
+  left: "0",
+  transform: "translateY(-50%)",
+  color: "white",
+  background: "#0000",
+  border: "2px solid white",
+  "border-radius": "15px",
+  "text-shadow": "0px 0px 10px white, 0px 0px 20px black, 0px 0px 30px white",
+  padding: "5px",
+  "z-index": "0",
+  cursor: "pointer"
+});
+document.addEventListener("keydown", function (meaningful_var_175) {
+  if (meaningful_var_175.key === butongizleme) {
+    if (Nickdegistir.style.display === "none") {
+      Nickdegistir.style.display = "block";
+    } else {
+      Nickdegistir.style.display = "none";
+    }
+  }
+});
+const modalContainer = document.createElement("div");
+modalContainer.id = "colorManager";
+modalContainer.className = "modal";
+modalContainer.style.display = "none";
+modalContainer.style.position = "fixed";
+modalContainer.style.zIndex = "1";
+modalContainer.style.paddingTop = "100px";
+modalContainer.style.left = "0";
+modalContainer.style.top = "0";
+modalContainer.style.width = "100%";
+modalContainer.style.height = "100%";
+modalContainer.style.overflow = "auto";
+modalContainer.style.backgroundColor = "#0000";
+const modalContent = document.createElement("div");
+modalContent.className = "modal-content";
+modalContent.style.backgroundColor = "#000";
+modalContent.style.margin = "auto";
+modalContent.style.padding = "20px";
+modalContent.style.backgroundImage = "url(https://i.hizliresim.com/4c0oq0g.jpg)";
+modalContent.style.border = "3px solid #00dcff";
+modalContent.style.width = "20%";
+modalContent.style.overflow = "auto";
+modalContent.style.maxHeight = "80%";
+const closeButton = document.createElement("span");
+closeButton.className = "close";
+closeButton.id = "colormanager-close";
+closeButton.innerHTML = "&times";
+closeButton.style.color = "red";
+closeButton.style.float = "right";
+closeButton.style.fontSize = "28px";
+closeButton.style.fontWeight = "bold";
+closeButton.addEventListener("click", () => {
+  modalContainer.style.display = "none";
+});
+var button3 = document.createElement("button");
+button3.innerText = "Renk Panel";
+button3.style.position = "absolute";
+button3.style.left = "0";
+button3.style.top = "-49.3%";
+button3.style.transform = "scaleY(0.9)";
+button3.style.transformOrigin = "center top";
+button3.style.backgroundColor = "transparent";
+button3.style.border = "2px solid";
+button3.style.borderColor = "white";
+button3.style.color = "white";
+button3.style.textShadow = "0 0 10px #ffffff, 0 0 20px #000000, 0 0 30px #ffffff";
+button3.style.padding = "5px";
+button3.style.cursor = "pointer";
+button3.style.borderRadius = "15px";
+button3.style.zIndex = "1";
+document.body.appendChild(button3);
+button3.addEventListener("mouseover", function () {
+  button3.style.backgroundColor = "rgba(255, 0, 0, 0.7)";
+});
+button3.addEventListener("mouseout", function () {
+  button3.style.backgroundColor = "transparent";
+});
+button3.onclick = function () {
+  modalContainer.style.display = "block";
+};
+document.addEventListener("keydown", function (meaningful_var_89) {
+  if (meaningful_var_89.key === butongizleme) {
+    if (button3.style.display === "none") {
+      button3.style.display = "block";
+    } else {
+      button3.style.display = "none";
+    }
+  }
+});
+const defaultColor = {
+  AdminInfo: "#FF0000",
+  Admin_MenuIcon: "#FF0000",
+  AutoBig: "#FFF000",
+  Border: "white",
+  CellBorder: "white",
+  ChatA: "#18D8EB",
+  ChatC: "#00CCCC",
+  ChatElse: "#FFFFFF",
+  ChatT: "#CCCC00",
+  Chat_AccNo: "#DDDDDD",
+  Chat_BG: "#000000",
+  Chat_Default: "#FF0000",
+  Chat_Guest: "#FFFFFF",
+  Clear: "#000",
+  EnterPrice: "#FF0000",
+  Gold: "white",
+  GoldToPrize: "#FFF000",
+  GoldToPrize: "#ff0000",
+  Grid: "black",
+  LastSeconds: "#ffffff",
+  Leaderboard_Background: "#000000",
+  Leaderboard_Default: "#FFFFFF",
+  Leaderboard_LastWinner: "#ff00e6",
+  Leaderboard_Player: "#FFAAAA",
+  Leaderboard_Spectator: "#FF0000",
+  LockMouse: "#FFFFFF",
+  Map_BG: "#DDDDDD",
+  Map_Dst: "#FF0000",
+  Map_Me: "#FFFFFF",
+  MovePoint: "#FFFFFF",
+  Name_Default: "#FFFFFF",
+  Name_SameClanOnList: "#00FF00",
+  Name_SameClanOnMap: "#0000FF",
+  Name_SameTeamOnList: "#DDDD00",
+  Name_SameTeamOnMap: "#DDDD00",
+  Position: "#AAAAAA",
+  Prize: "",
+  RedVirus_Line: "#DD0000",
+  RoomInfo: "#FFFFFF",
+  Score: "#FFFFFF",
+  TimerAndRecord_BG: "black",
+  TimerAndRecord_Record: "#FFFF00",
+  TimerAndRecord_Timer: "white",
+  TopMessage: "#ffff00", // Neon sarı
+  TouchMark: "#5596FF",
+  UserID: "red",
+  Virus_Line: "#00DD00"
+};
+const storedColorData = JSON.parse(localStorage.getItem("colorData"));
+let colorData = storedColorData || {
+  Gold: "#ffffff",
+  Prize: "#0900ff",
+  GoldToPrize: "#72ff00",
+  AutoBig: "#FFF000",
+  TopMessage: "#614df3",
+  ChatT: "#ff9900",
+  ChatC: "#00CCCC",
+  ChatA: "#00CCFF",
+  ChatElse: "#ffffff",
+  Leaderboard_Background: "#000000",
+  Leaderboard_LastWinner: "#FE3939",
+  Name_Default: "#ffffff",
+  Name_SameTeamOnList: "#c5ff00",
+  Name_SameTeamOnMap: "#00e3ff",
+  Name_SameClanOnList: "#00ffff",
+  Name_SameClanOnMap: "#0000FF",
+  Admin_MenuIcon: "#FF0000",
+  RoomInfo: "#FFFFFF",
+  Clear: "#111111",
+  TimerAndRecord_BG: "#DDDDDD",
+  TimerAndRecord_Timer: "#000000",
+  TimerAndRecord_Record: "#E1FF00",
+  Score: "#ffffff",
+  Map_BG: "#DDDDDD",
+  Map_Dst: "#FF0000",
+  Map_Me: "#00ff21",
+  Position: "#AAAAAA",
+  Chat_Default: "#FF0000",
+  Border: "#0020ff",
+  Grid: "#070707",
+  EnterPrice: "#FF0000",
+  UserID: "#ff0000",
+  LockMouse: "#FFFFFF",
+  Leaderboard_Spectator: "#3aff00",
+  Leaderboard_Player: "#FFAAAA",
+  Leaderboard_Default: "#FFFFFF",
+  Chat_AccNo: "#ff0000",
+  LastSeconds: "#9e32ff",
+  AdminInfo: "#FF0000",
+  MovePoint: "#FFFFFF",
+  Chat_Guest: "#c500ff",
+  Virus_Line: "#00f2ff",
+  RedVirus_Line: "#DD0000",
+  TouchMark: "#5596FF",
+  CellBorder: "#ffffff",
+  Chat_BG: "#111111"
+};
+const colorManagerTurkishContent = {
+  Gold: "Gold",
+  Prize: "Ödül",
+  GoldToPrize: "Ödüle Ekleniyor Rengi",
+  AutoBig: "Otomatik Büyütme Rengi",
+  TopMessage: "Üst Yazılar",
+  ChatT: "Team Chat Rengi",
+  ChatC: "Klan Rengi",
+  ChatA: "Haykır Rengi",
+  ChatElse: "Genel Chat Rengi",
+  Leaderboard_Background: "Sıralama Arkaplanı",
+  Leaderboard_LastWinner: "Sıralama Son Kazanan",
+  Name_Default: "Nick Renkleri",
+  Name_SameTeamOnList: "Team Liste Rengi",
+  Name_SameTeamOnMap: "Team Maptaki Renkleri",
+  Name_SameClanOnList: "Klan Liste Rengi",
+  Name_SameClanOnMap: "Klandakilerin Rengi",
+  Admin_MenuIcon: "Admin Menu İcon",
+  RoomInfo: "Sağ Alt Oda Bilgileri",
+  Clear: "Map Rengi",
+  TimerAndRecord_BG: "üst Oda Arkaplan",
+  TimerAndRecord_Timer: "Oda Süre",
+  TimerAndRecord_Record: "Oda Rekor",
+  Score: "Sol üst skor rengi",
+  Map_BG: "Sol üst Map Rengi",
+  Map_Dst: "",
+  Map_Me: "Maptaki Rengin",
+  Position: "Sol üst Paylaş rengi",
+  Chat_Default: "Chat Rengi",
+  Border: "Kenar izgileri",
+  Grid: "Map izgileri",
+  EnterPrice: "",
+  UserID: "Hesap No Rengi",
+  LockMouse: "T Sabitleme",
+  Leaderboard_Spectator: "İzleyici Sıralama Rengi",
+  Leaderboard_Player: "Sıralama Oyuncu Rengi",
+  Leaderboard_Default: "Sıralama Default",
+  Chat_AccNo: "Sohbet Hesap Kodları",
+  LastSeconds: "Son Saniyeler",
+  AdminInfo: "Admin İnfo",
+  MovePoint: "",
+  Chat_Guest: "Genel Chat Rengi",
+  Virus_Line: "",
+  RedVirus_Line: "",
+  TouchMark: "",
+  CellBorder: "Parça Kenar çizgisi",
+  Chat_BG: "Sohbet Arkaplanı"
+};
+const hiddenKeys = ["Chat_BG", "Virus_Line", "GoldToPsrize", "CellBorder", "Leaderboard_Player", "Leaderboard_Spectator", "Score", "Name_SameTeamOnMap", "Name_SameClanOnMap", "Map_Dst", "GoldToPrize", "Chat_Guest", "Map_BG", "AutoBig", "Map_Me", "AdminInfo", "LastSeconds", "Admin_MenuIcon", "EnterPrice", "Position", "RedVirus_Line", "TouchMark", "MovePoint", "Chat_Default"];
+function resetColorManager() {
+  colorData = defaultColor;
+  for (const meaningful_var_184 in colorData) {
+    if (colorData.hasOwnProperty(meaningful_var_184)) {
+      const meaningful_var_49 = "color-" + meaningful_var_184;
+      const meaningful_var_273 = document.getElementById(meaningful_var_49);
+      if (meaningful_var_273) {
+        meaningful_var_273.value = colorData[meaningful_var_184];
+      }
+    }
+  }
+  localStorage.setItem("colorData", JSON.stringify(colorData));
+  ColorManager.Current = colorData;
+}
+ColorManager.Current = colorData;
+const header = document.createElement("h3");
+header.innerHTML = " ";
+const colorInputsContainer = document.createElement("div");
+const warningLabel = document.createElement("label");
+warningLabel.innerText = "CapsLock tuuna basarak bu pencereyi açıp kapatabilirsin";
+colorInputsContainer.appendChild(warningLabel);
+var button = document.createElement("button");
+button.innerText = "Sıfırla";
+button.style.padding = "5px";
+button.style.borderRadius = "15px";
+button.style.color = "red";
+colorInputsContainer.appendChild(button);
+button.onclick = function () {
+  if (confirm("Sıfırlamak istediine emin misin?")) {
+    resetColorManager();
+  }
+};
+colorInputsContainer.appendChild(document.createElement("br"));
+for (const key in colorData) {
+  if (colorData.hasOwnProperty(key) && !hiddenKeys.includes(key)) {
+    const color = colorData[key];
+    const inputId = "color-" + key;
+    const label = document.createElement("label");
+    label.innerText = key + ": ";
+    if (colorManagerTurkishContent[key] != "") {
+      label.innerText = colorManagerTurkishContent[key] + ": ";
+    }
+    const input = document.createElement("input");
+    input.type = "color";
+    input.id = inputId;
+    input.value = color;
+    input.addEventListener("input", meaningful_var_45 => {
+      colorData[key] = meaningful_var_45.target.value;
+      ColorManager.Current = colorData;
+      localStorage.setItem("colorData", JSON.stringify(colorData));
+      console.log("Renk \"" + key + "\" deitirildi: " + meaningful_var_45.target.value);
+    });
+    label.style.margin = "5px";
+    input.style.margin = "5px";
+    colorInputsContainer.appendChild(label);
+    colorInputsContainer.appendChild(input);
+    colorInputsContainer.appendChild(document.createElement("br"));
+  }
+}
+modalContent.appendChild(closeButton);
+modalContent.appendChild(header);
+modalContent.appendChild(colorInputsContainer);
+modalContainer.appendChild(modalContent);
+document.body.appendChild(modalContainer);
+(function () {
+  'use strict';
+
+  if (storedColorData) {
+    for (const meaningful_var_274 in storedColorData) {
+      if (colorData.hasOwnProperty(meaningful_var_274)) {
+        colorData[meaningful_var_274] = storedColorData[meaningful_var_274];
+        const meaningful_var_54 = "color-" + meaningful_var_274;
+        const meaningful_var_275 = document.getElementById("color-" + meaningful_var_274);
+        if (meaningful_var_275) {
+          meaningful_var_275.value = colorData[meaningful_var_274];
+        }
+      }
+    }
+  } else {
+    for (const meaningful_var_95 in colorData) {
+      if (colorData.hasOwnProperty(meaningful_var_95)) {
+        const meaningful_var_199 = "color-" + meaningful_var_95;
+        const meaningful_var_192 = document.getElementById(meaningful_var_199);
+        if (meaningful_var_192) {
+          meaningful_var_192.value = colorData[meaningful_var_95];
+        }
+      }
+    }
+  }
+  window.addEventListener("keydown", function (meaningful_var_19) {
+    if (meaningful_var_19.key === renkpaneli) {
+      if (modalContainer.style.display === "block") {
+        modalContainer.style.display = "none";
+      } else {
+        modalContainer.style.display = "block";
+      }
+    }
+  });
+})();
+const isimFavori = document.getElementById("isimFavori");
+const skinFavori = document.getElementById("skinFavori");
+if (isimFavori && skinFavori) {
+  isimFavori.value = "İsim Favori ";
+  skinFavori.value = "  Skin Favori  ";
+  skinFavori.style.left = "-4px";
+  skinFavori.style.top = "-1px";
+  isimFavori.style.top = "-1px";
+ let container = document.createElement("div");
+container.style.position = "absolute";
+container.style.left = "0px";
+container.style.width = "87px";
+container.style.fontSize = "13px";
+container.style.top = "-57%";
+container.style.transform = "scaleY(0.9)";
+container.style.transformOrigin = "center top";
+container.style.display = "flex";
+container.style.flexDirection = "row";
+container.style.justifyContent = "flex-start";
+container.style.gap = "10px";
+container.style.zIndex = "0";
+  container.appendChild(isimFavori);
+  container.appendChild(skinFavori);
+  document.body.appendChild(container);
+  const buttons = [isimFavori, skinFavori];
+  buttons.forEach(meaningful_var_156 => {
+    meaningful_var_156.style.position = "relative";
+    meaningful_var_156.style.backgroundColor = "transparent";
+    meaningful_var_156.style.border = "2px solid white";
+    meaningful_var_156.style.color = "white";
+    meaningful_var_156.style.textShadow = "0 0 10px #ffffff, 0 0 0px #000000, 0 0 30px #ffffff";
+    meaningful_var_156.style.padding = "5px";
+      meaningful_var_156.style.transform = "scaleY(0.9)";
+meaningful_var_156.style.transformOrigin = "center top";
+    meaningful_var_156.style.cursor = "pointer";
+  meaningful_var_156.style.width = "82px";
+   meaningful_var_156.style.fontSize = "13px";
+    meaningful_var_156.style.borderRadius = "15px";
+    meaningful_var_156.style.zIndex = "1";
+    meaningful_var_156.style.width = "87px";
+    meaningful_var_156.style.height = "auto";
+    meaningful_var_156.style.transition = "background-color 0.3s";
+    meaningful_var_156.addEventListener("mouseover", () => {
+      meaningful_var_156.style.backgroundColor = "red";
+    });
+    meaningful_var_156.addEventListener("mouseout", () => {
+      meaningful_var_156.style.backgroundColor = "transparent";
+    });
+  });
+
+  let isVisible = true;
+  function toggleVisibility() {
+    isVisible = !isVisible;
+    buttons.forEach(meaningful_var_38 => {
+      meaningful_var_38.style.display = isVisible ? "block" : "none";
+    });
+  }
+  document.addEventListener("keydown", meaningful_var_40 => {
+    if (meaningful_var_40.key === butongizleme) {
+      toggleVisibility();
+    }
+  });
+}
+function adjustInputSize() {
+  const meaningful_var_224 = document.getElementById("txtSkin");
+  if (meaningful_var_224) {
+    meaningful_var_224.style.width = "100%";
+    meaningful_var_224.style.height = "32px";
+    meaningful_var_224.style.padding = "10px";
+    meaningful_var_224.style.fontSize = "16px";
+  } else {
+    setTimeout(adjustInputSize, 50);
+  }
+}
+adjustInputSize();
+
+$(() => {
+  $(document).on('keydown', function(e) {
+    if (e.key === ffadançıkgir && !$(e.target).is("input")) {
+      wsClose();
+      setTimeout(() => {
+        onClickPlay();
+      }, 400);
+    }
+  });
+});
+
+(function () {
+  'use strict';
+
+  let meaningful_var_239 = ColorManager.Current;
+  let meaningful_var_79 = 0;
+  let meaningful_var_51 = [{
+    r: 255,
+    g: 0,
+    b: 0
+  }, {
+    r: 255,
+    g: 127,
+    b: 80
+  }, {
+    r: 0,
+    g: 0,
+    b: 255
+  }, {
+    r: 144,
+    g: 238,
+    b: 144
+  }, {
+    r: 75,
+    g: 0,
+    b: 130
+  }, {
+    r: 240,
+    g: 128,
+    b: 128
+  }, {
+    r: 148,
+    g: 0,
+    b: 211
+  }, {
+    r: 255,
+    g: 182,
+    b: 193
+  }, {
+    r: 135,
+    g: 206,
+    b: 250
+  }, {
+    r: 34,
+    g: 139,
+    b: 34
+  }, {
+    r: 255,
+    g: 250,
+    b: 205
+  }, {
+    r: 210,
+    g: 105,
+    b: 30
+  }, {
+    r: 128,
+    g: 0,
+    b: 128
+  }, {
+    r: 255,
+    g: 245,
+    b: 238
+  }, {
+    r: 70,
+    g: 130,
+    b: 180
+  }, {
+    r: 255,
+    g: 215,
+    b: 0
+  }, {
+    r: 255,
+    g: 69,
+    b: 0
+  }, {
+    r: 60,
+    g: 179,
+    b: 113
+  }, {
+    r: 106,
+    g: 90,
+    b: 205
+  }, {
+    r: 173,
+    g: 255,
+    b: 47
+  }, {
+    r: 250,
+    g: 128,
+    b: 114
+  }, {
+    r: 72,
+    g: 61,
+    b: 139
+  }, {
+    r: 255,
+    g: 20,
+    b: 147
+  }, {
+    r: 0,
+    g: 191,
+    b: 255
+  }, {
+    r: 255,
+    g: 165,
+    b: 0
+  }, {
+    r: 255,
+    g: 228,
+    b: 225
+  }, {
+    r: 30,
+    g: 144,
+    b: 255
+  }, {
+    r: 255,
+    g: 69,
+    b: 0
+  }, {
+    r: 218,
+    g: 112,
+    b: 214
+  }, {
+    r: 0,
+    g: 255,
+    b: 127
+  }, {
+    r: 255,
+    g: 99,
+    b: 71
+  }];
+  let meaningful_var_41 = 45;
+  let meaningful_var_176 = 0;
+  let meaningful_var_291 = meaningful_var_51[0];
+  let meaningful_var_58 = meaningful_var_51[1];
+  function meaningful_var_185(meaningful_var_180, meaningful_var_1, meaningful_var_281) {
+    let meaningful_var_240 = Math.round(meaningful_var_180.r + meaningful_var_281 * (meaningful_var_1.r - meaningful_var_180.r));
+    let meaningful_var_5 = Math.round(meaningful_var_180.g + meaningful_var_281 * (meaningful_var_1.g - meaningful_var_180.g));
+    let meaningful_var_2 = Math.round(meaningful_var_180.b + meaningful_var_281 * (meaningful_var_1.b - meaningful_var_180.b));
+    return "rgb(" + meaningful_var_240 + ", " + meaningful_var_5 + ", " + meaningful_var_2 + ")";
+  }
+  function meaningful_var_153() {
+    let meaningful_var_46 = meaningful_var_176 / meaningful_var_41;
+    let meaningful_var_14 = meaningful_var_185(meaningful_var_291, meaningful_var_58, meaningful_var_46);
+    meaningful_var_239.LastSeconds = meaningful_var_14;
+    meaningful_var_239.Leaderboard_LastWinner = meaningful_var_14;
+    meaningful_var_176++;
+    if (meaningful_var_176 > meaningful_var_41) {
+      meaningful_var_176 = 0;
+      meaningful_var_79 = (meaningful_var_79 + 1) % meaningful_var_51.length;
+      meaningful_var_291 = meaningful_var_58;
+      meaningful_var_58 = meaningful_var_51[(meaningful_var_79 + 1) % meaningful_var_51.length];
+    }
+  }
+  setInterval(meaningful_var_153, 20);
+  const meaningful_var_155 = document.getElementById("gamemode");
+  if (!meaningful_var_155) {
+    return;
+  }
+  const meaningful_var_32 = document.createElement("input");
+  meaningful_var_32.type = "text";
+  meaningful_var_32.placeholder = "FFA Giriniz!";
+  meaningful_var_32.style.position = "absolute";
+  meaningful_var_32.style.left = "93px";
+  meaningful_var_32.style.top = "-45.3%";
+  meaningful_var_32.style.transform = "scaleY(0.9)";
+  meaningful_var_32.style.transformOrigin = "center top";
+  meaningful_var_32.style.backgroundColor = "black";
+  meaningful_var_32.style.border = "2px solid";
+  meaningful_var_32.style.borderColor = "white";
+  meaningful_var_32.style.color = "red";
+  meaningful_var_32.style.textShadow = "none";
+  meaningful_var_32.style.padding = "5px";
+  meaningful_var_32.style.borderRadius = "15px";
+  meaningful_var_32.style.zIndex = "1";
+  meaningful_var_32.style.width = "143px";
+  document.body.appendChild(meaningful_var_32);
+  document.addEventListener("keydown", function (meaningful_var_135) {
+    if (meaningful_var_135.key === butongizleme) {
+      if (meaningful_var_32.style.display === "none") {
+        meaningful_var_32.style.display = "block";
+      } else {
+        meaningful_var_32.style.display = "none";
+      }
+    }
+  });
+  let meaningful_var_114;
+  meaningful_var_32.addEventListener("input", function () {
+    clearTimeout(meaningful_var_114);
+    meaningful_var_114 = setTimeout(function () {
+      var meaningful_var_202 = meaningful_var_32.value.trim();
+      if (!meaningful_var_202) {
+        return;
+      }
+      var meaningful_var_160 = Array.from(meaningful_var_155.options);
+      var meaningful_var_206 = meaningful_var_160.find(meaningful_var_60 => meaningful_var_60.text.includes(meaningful_var_202));
+      if (meaningful_var_206) {
+        meaningful_var_155.value = meaningful_var_206.value;
+        var meaningful_var_277 = new Event("change", {
+          bubbles: true
+        });
+        meaningful_var_155.dispatchEvent(meaningful_var_277);
+        skipPopupOnClose = true;
+        reconnect = 1;
+        cellManager.drawMode = 0;
+        cellManager.clearRecord();
+        userScoreCurrent = 0;
+        userScoreMax = 0;
+        setSpectator = 1;
+        document.getElementById(meaningful_var_206.id).selected = true;
+        setserver4(meaningful_var_206.value);
+      } else {
+        console.log("FFA number " + meaningful_var_202 + " not found");
+      }
+    }, 500);
+  });
+  const meaningful_var_109 = document.getElementById("gamemode").options;
+  const meaningful_var_30 = Array.from(meaningful_var_109).map(meaningful_var_150 => ({
+    id: meaningful_var_150.id,
+    value: meaningful_var_150.value,
+    text: meaningful_var_150.text
+  }));
+  const meaningful_var_12 = meaningful_var_30.filter(meaningful_var_128 => !["VS-CFFA", "Etkinlik-1", "VS-FFA", "VS-GSZ", "GSZ-1"].includes(meaningful_var_128.text));
+  const meaningful_var_233 = JSON.stringify(meaningful_var_12);
+  const meaningful_var_69 = document.getElementById("idTwitch");
+  const meaningful_var_257 = document.createElement("div");
+  meaningful_var_257.style.display = "grid";
+  meaningful_var_257.style.gridTemplateColumns = "repeat(4, 1fr)";
+  meaningful_var_257.style.gap = "10px";
+  meaningful_var_257.style.left = "-20px";
+  meaningful_var_257.style.top = "-45px";
+  meaningful_var_257.style.position = "relative";
+  const meaningful_var_203 = document.createElement("button");
+  meaningful_var_203.textContent = "Gizle&Göster";
+  meaningful_var_203.style.backgroundColor = "black";
+  meaningful_var_203.style.color = "white";
+  meaningful_var_203.style.border = "2px solid white";
+  meaningful_var_203.style.padding = "8px 16px";
+  meaningful_var_203.style.textAlign = "center";
+  meaningful_var_203.style.fontSize = "12px";
+  meaningful_var_203.style.margin = "4px";
+  meaningful_var_203.style.cursor = "pointer";
+  meaningful_var_203.style.borderRadius = "6px";
+  meaningful_var_203.style.transition = "all 0.3s ease";
+  meaningful_var_203.style.position = "relative";
+  meaningful_var_203.style.top = "-3px";
+  meaningful_var_203.style.right = "-95%";
+  meaningful_var_203.onmouseover = () => {
+    meaningful_var_203.style.backgroundColor = "red";
+    meaningful_var_203.style.border = "2px solid black";
+    meaningful_var_203.style.color = "white";
+    meaningful_var_203.style.transform = "scale(1.1)";
+    meaningful_var_203.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.5)";
+  };
+  meaningful_var_203.onmouseout = () => {
+    meaningful_var_203.style.backgroundColor = "black";
+    meaningful_var_203.style.border = "2px solid white";
+    meaningful_var_203.style.color = "white";
+    meaningful_var_203.style.transform = "scale(1)";
+    meaningful_var_203.style.boxShadow = "none";
+  };
+  meaningful_var_203.onclick = () => {
+    if (meaningful_var_257.style.display === "none") {
+      meaningful_var_257.style.display = "grid";
+    } else {
+      meaningful_var_257.style.display = "none";
+    }
+  };
+  meaningful_var_69.appendChild(meaningful_var_203);
+  meaningful_var_69.appendChild(meaningful_var_257);
+  JSON.parse(meaningful_var_233).forEach(meaningful_var_55 => {
+    const meaningful_var_34 = document.createElement("span");
+    meaningful_var_34.innerHTML += meaningful_var_55.text + "&nbsp;&nbsp;";
+    meaningful_var_34.setAttribute("data-value", meaningful_var_55.value);
+    meaningful_var_34.style.cursor = "pointer";
+    meaningful_var_34.style.color = "white";
+    meaningful_var_34.style.fontFamily = "ubuntu";
+    meaningful_var_34.style.fontStyle = "italic";
+    meaningful_var_34.style.textShadow = "rgb(0, 0, 0) 0px 0px 10px, rgb(255 255 255) 1px 0px 20px, rgb(255 255 255) 0px 0px 0px";
+    meaningful_var_34.style.textAlign = "center";
+    meaningful_var_34.addEventListener("click", () => {
+      skipPopupOnClose = true;
+      reconnect = 1;
+      cellManager.drawMode = 0;
+      cellManager.clearRecord();
+      userScoreCurrent = 0;
+      userScoreMax = 0;
+      setSpectator = 1;
+      document.getElementById(meaningful_var_55.id).selected = true;
+      setserver4(meaningful_var_55.value);
+    });
+    meaningful_var_257.appendChild(meaningful_var_34);
+  });
+  let meaningful_var_216 = false;
+  const meaningful_var_152 = document.getElementById("yesno_settings");
+  const meaningful_var_123 = document.createElement("label");
+  const meaningful_var_296 = document.createElement("input");
+  meaningful_var_296.type = "checkbox";
+  meaningful_var_123.appendChild(meaningful_var_296);
+  meaningful_var_123.appendChild(document.createTextNode("Kendi Skorumu Göster"));
+  meaningful_var_152.appendChild(meaningful_var_123);
+  meaningful_var_296.addEventListener("change", () => {
+    meaningful_var_216 = meaningful_var_296.checked;
+  });
+  var meaningful_var_230 = false;
+  var meaningful_var_157 = false;
+  var meaningful_var_191 = localStorage.getItem("overlayColor") || "#FFFFFF";
+  var meaningful_var_188 = localStorage.getItem("borderColor") || "#616161";
+  var meaningful_var_110 = localStorage.getItem("playerNameColor") || "#FFFFFF";
+  function meaningful_var_146() {
+    var meaningful_var_6 = Math.round(leftPos) + 10;
+    var meaningful_var_293 = Math.round(topPos) + 10;
+    var meaningful_var_37 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    var meaningful_var_47 = (Math.round(rightPos) - 10 - meaningful_var_6) / 5;
+    var meaningful_var_86 = (Math.round(bottomPos) - 10 - meaningful_var_293) / 5;
+    var meaningful_var_231 = 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.globalAlpha = 0.1;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = meaningful_var_47 * 0.6 + "px auto";
+    ctx.fillStyle = meaningful_var_191;
+    for (; meaningful_var_231 < 5; meaningful_var_231++) {
+      for (var meaningful_var_80 = 0; meaningful_var_80 < 5; meaningful_var_80++) {
+        ctx.fillText(meaningful_var_37[meaningful_var_231] + (meaningful_var_80 + 1), meaningful_var_6 + meaningful_var_47 * meaningful_var_80 + meaningful_var_47 / 2, meaningful_var_293 + meaningful_var_86 * meaningful_var_231 + meaningful_var_86 / 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 100;
+    ctx.strokeStyle = meaningful_var_157 ? "#2E2E2E" : meaningful_var_188;
+    for (meaningful_var_231 = 0; meaningful_var_231 < 5; meaningful_var_231++) {
+      for (var meaningful_var_111 = 0; meaningful_var_111 < 5; meaningful_var_111++) {
+        ctx.strokeRect(meaningful_var_6 + meaningful_var_47 * meaningful_var_111, meaningful_var_293 + meaningful_var_86 * meaningful_var_231, meaningful_var_47, meaningful_var_86);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  function meaningful_var_84() {
+    if (!meaningful_var_230) {
+      return;
+    }
+    meaningful_var_146();
+  }
+  window.drawOverlay = meaningful_var_84;
+  var meaningful_var_219 = drawBorder;
+  drawBorder = function () {
+    meaningful_var_219();
+    meaningful_var_84();
+  };
+  var meaningful_var_31 = document.createElement("div");
+  meaningful_var_31.id = "settingsPanel";
+  meaningful_var_31.style.position = "absolute";
+  meaningful_var_31.style.top = "97%";
+  meaningful_var_31.style.left = "50%";
+  meaningful_var_31.style.transform = "translateY(-50%)";
+  meaningful_var_31.style.backgroundColor = "black";
+  meaningful_var_31.style.color = "white";
+  meaningful_var_31.style.padding = "5px";
+  meaningful_var_31.style.border = "2px solid white";
+  meaningful_var_31.style.borderRadius = "15px";
+  meaningful_var_31.style.display = "none";
+  meaningful_var_31.style.zIndex = "1";
+  document.body.appendChild(meaningful_var_31);
+  document.addEventListener("keydown", function (meaningful_var_207) {
+    if (meaningful_var_207.key === oyunayarlari) {
+      if (meaningful_var_31.style.display === "none") {
+        meaningful_var_31.style.display = "block";
+      } else {
+        meaningful_var_31.style.display = "none";
+      }
+    }
+  });
+  var meaningful_var_35 = document.createElement("button");
+  meaningful_var_35.innerText = "Ayar Paneli-1";
+  meaningful_var_35.style.position = "absolute";
+  meaningful_var_35.style.textShadow = "rgb(255, 255, 255) 0px 0px 10px, rgb(0, 0, 0) 0px 0px 0px, rgb(255, 255, 255) 0px 0px 30px";
+  meaningful_var_35.style.left = "-90px";
+  meaningful_var_35.style.top = "-490.3%";
+  meaningful_var_35.style.transform = "scaleY(0.9)";
+  meaningful_var_35.style.transformOrigin = "center top";
+  meaningful_var_35.style.backgroundColor = "transparent";
+  meaningful_var_35.style.border = "2px solid white";
+  meaningful_var_35.style.color = "white";
+  meaningful_var_35.style.textShadow = "0 0 10px #ffffff, 0 0 0px #000000, 0 0 30px #ffffff";
+  meaningful_var_35.style.padding = "5px";
+  meaningful_var_35.style.cursor = "pointer";
+  meaningful_var_35.style.borderRadius = "15px";
+  meaningful_var_35.style.zIndex = "1";
+  document.body.appendChild(meaningful_var_35);
+  document.addEventListener("keydown", function (meaningful_var_294) {
+    if (meaningful_var_294.key === butongizleme) {
+      if (meaningful_var_35.style.display === "none") {
+        meaningful_var_35.style.display = "block";
+      } else {
+        meaningful_var_35.style.display = "none";
+      }
+    }
+  });
+  meaningful_var_35.addEventListener("mouseover", function () {
+    meaningful_var_35.style.backgroundColor = "rgba(255, 0, 0, 0.7)";
+  });
+  meaningful_var_35.addEventListener("mouseout", function () {
+    meaningful_var_35.style.backgroundColor = "transparent";
+  });
+  meaningful_var_35.addEventListener("mouseout", function () {
+    meaningful_var_35.style.backgroundColor = "transparent";
+  });
+  meaningful_var_35.addEventListener("click", function () {
+    meaningful_var_31.style.display = meaningful_var_31.style.display === "none" ? "block" : "none";
+  });
+  var meaningful_var_235 = document.createElement("button");
+  meaningful_var_235.innerHTML = "Izgara Aç/Kapa";
+  meaningful_var_235.style.color = "white";
+  meaningful_var_235.style.backgroundColor = "#28a745";
+  meaningful_var_235.style.border = "none";
+  meaningful_var_235.style.borderRadius = "3px";
+  meaningful_var_235.style.padding = "5px 10px";
+  meaningful_var_235.style.cursor = "pointer";
+  meaningful_var_235.style.fontSize = "12px";
+  meaningful_var_235.style.marginTop = "5px";
+  meaningful_var_235.style.transition = "background-color 0.3s, transform 0.2s";
+  meaningful_var_235.addEventListener("mouseover", function () {
+    meaningful_var_235.style.backgroundColor = "#218838";
+  });
+  meaningful_var_235.addEventListener("mouseout", function () {
+    meaningful_var_235.style.backgroundColor = "#28a745";
+  });
+  meaningful_var_235.addEventListener("mousedown", function () {
+    meaningful_var_235.style.transform = "scale(0.95)";
+  });
+  meaningful_var_235.addEventListener("mouseup", function () {
+    meaningful_var_235.style.transform = "scale(1)";
+  });
+  meaningful_var_31.appendChild(meaningful_var_235);
+  meaningful_var_235.addEventListener("click", function () {
+    meaningful_var_230 = !meaningful_var_230;
+    if (meaningful_var_230) {
+      meaningful_var_84();
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBorder();
+    }
+  });
+  var meaningful_var_181 = document.createElement("label");
+  meaningful_var_181.innerText = "Izgara Rengi: ";
+  meaningful_var_31.appendChild(meaningful_var_181);
+  var meaningful_var_67 = document.createElement("input");
+  meaningful_var_67.type = "color";
+  meaningful_var_67.value = meaningful_var_191;
+  meaningful_var_67.title = "Overlay Color";
+  meaningful_var_67.style.width = "40px";
+  meaningful_var_67.style.height = "25px";
+  meaningful_var_31.appendChild(meaningful_var_67);
+  var meaningful_var_198 = document.createElement("label");
+  meaningful_var_198.innerText = "izgi Rengi: ";
+  meaningful_var_31.appendChild(meaningful_var_198);
+  var meaningful_var_241 = document.createElement("input");
+  meaningful_var_241.type = "color";
+  meaningful_var_241.value = meaningful_var_188;
+  meaningful_var_241.title = "Border Color";
+  meaningful_var_241.style.width = "40px";
+  meaningful_var_241.style.height = "25px";
+  meaningful_var_31.appendChild(meaningful_var_241);
+  var meaningful_var_70 = document.createElement("label");
+  meaningful_var_70.innerText = "Nick Rengim: ";
+  meaningful_var_31.appendChild(meaningful_var_70);
+  var meaningful_var_4 = document.createElement("input");
+  meaningful_var_4.type = "color";
+  meaningful_var_4.value = meaningful_var_110;
+  meaningful_var_4.title = "Player Name Color";
+  meaningful_var_4.style.width = "40px";
+  meaningful_var_4.style.height = "25px";
+  meaningful_var_31.appendChild(meaningful_var_4);
+  meaningful_var_67.addEventListener("input", function () {
+    meaningful_var_191 = meaningful_var_67.value;
+    localStorage.setItem("overlayColor", meaningful_var_191);
+    if (meaningful_var_230) {
+      meaningful_var_84();
+    }
+  });
+  meaningful_var_241.addEventListener("input", function () {
+    meaningful_var_188 = meaningful_var_241.value;
+    localStorage.setItem("borderColor", meaningful_var_188);
+    if (meaningful_var_230) {
+      meaningful_var_84();
+    }
+  });
+  meaningful_var_4.addEventListener("input", function () {
+    meaningful_var_110 = meaningful_var_4.value;
+    localStorage.setItem("playerNameColor", meaningful_var_110);
+    meaningful_var_88();
+  });
+  function meaningful_var_88() {
+    for (var meaningful_var_282 of cellManager.playerCellList) {
+      if (meaningful_var_282.pID == playerId) {
+        meaningful_var_282.drawNameColor = meaningful_var_110;
+      }
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawBorder();
+    meaningful_var_84();
+  }
+  var meaningful_var_263 = window.Cell.prototype.drawOneCell_player_ctx;
+  window.Cell.prototype.drawOneCell_player_ctx = function () {
+    if (options && options.get("transparentRender") == true) {
+      ctx.globalAlpha = 0.6;
+    } else {
+      ctx.globalAlpha = 1;
+    }
+    if (this.tailDbg.length > 0) {
+      ctx.strokeStyle = "#ff0000";
+      ctx.lineWidth = 1;
+      for (var meaningful_var_59 = 0; meaningful_var_59 < this.tailDbg.length; meaningful_var_59++) {
+        ctx.strokeStyle = "rgba(255,255,255)";
+        ctx.beginPath();
+        ctx.arc(this.tailDbg[meaningful_var_59].x, this.tailDbg[meaningful_var_59].y, 5, 0, Math.PI * 2, false);
+        ctx.stroke();
+      }
+    }
+    if (this.nodeDbg.length > 0) {
+      ctx.strokeStyle = "#ff0000";
+      ctx.lineWidth = 1;
+      for (var meaningful_var_59 = 0; meaningful_var_59 < this.nodeDbg.length; meaningful_var_59++) {
+        ctx.beginPath();
+        ctx.arc(this.nodeDbg[meaningful_var_59].x, this.nodeDbg[meaningful_var_59].y, 6, 0, Math.PI * 2, false);
+        ctx.stroke();
+      }
+    }
+    ctx.fillStyle = this.color;
+    this.drawSimple(ctx);
+    ctx.fill();
+    if (this.isDrawSkin()) {
+      var meaningful_var_63 = "//cdn.agarz.com/" + this.skinName;
+      if (!skins.hasOwnProperty(this.skinName)) {
+        skins[this.skinName] = new Image();
+        skins[this.skinName].src = meaningful_var_63;
+        if (!skins[this.skinName].src.endsWith(".png")) {
+          skins[this.skinName].src += ".png";
+        }
+        skins[this.skinName].onload = function () {
+          skinsLoaded[this.skinName] = true;
+        }.bind(this);
+      }
+      if (skinsLoaded.hasOwnProperty(this.skinName)) {
+        var meaningful_var_250 = skins[this.skinName];
+        ctx.save();
+        ctx.clip();
+        ctx.drawImage(meaningful_var_250, this.x_draw - this.size_draw, this.y_draw - this.size_draw, this.size_draw * 2, this.size_draw * 2);
+        ctx.restore();
+        var meaningful_var_251 = playerInfoList[this.pID];
+        if (meaningful_var_251 != null && meaningful_var_251.userId == record_uid && record_uid != 0) {
+          ctx.drawImage(crownImage, this.x_draw - this.size_draw * 0.5, this.y_draw - this.size_draw * 2, this.size_draw, this.size_draw);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (this.pID == playerId) {
+      ctx.fillStyle = meaningful_var_110;
+    } else {
+      var meaningful_var_278 = getLeaderboardExt(this.pID);
+      if (meaningful_var_278 == null) {
+        ctx.fillStyle = ColorManager.Current.Name_Default;
+      } else if (meaningful_var_278.sameTeam == 1) {
+        ctx.fillStyle = ColorManager.Current.Name_SameTeamOnList;
+      } else if (meaningful_var_278.sameClan == 1) {
+        ctx.fillStyle = ColorManager.Current.Name_SameClanOnList;
+      }
+    }
+    if (this.isDrawName()) {
+      ctx.font = this.getNameSize() + "px auto";
+      this.calcNameWidth(ctx);
+      var meaningful_var_264 = this.x_draw - this.nameWidth * 0.5;
+      ctx.fillText(this.name, meaningful_var_264, this.y_draw);
+    }
+    if (this.isDrawClan()) {
+      var meaningful_var_223 = this.getClanName();
+      var meaningful_var_295 = Math.floor(this.getNameSize() * 0.5);
+      ctx.font = meaningful_var_295 + "px Ubuntu";
+      var meaningful_var_248 = ctx.measureText(meaningful_var_223).width;
+      var meaningful_var_200 = this.x_draw - meaningful_var_248 * 0.5;
+      ctx.fillText(meaningful_var_223, meaningful_var_200, this.y_draw - meaningful_var_295 * 2);
+    }
+    if (this.isDrawScore() || meaningful_var_216 && cellManager.playerCellList && cellManager.playerCellList.length && cellManager.playerCellList.some(meaningful_var_126 => meaningful_var_126.pID === this.pID)) {
+      ctx.font = this.getNameSize() + "px Ubuntu";
+      var meaningful_var_147 = this.getScore();
+      var meaningful_var_260 = meaningful_var_147.dotFormat();
+      var meaningful_var_141 = this.x_draw - this.scoreWidth * 0.5;
+      ctx.fillText(meaningful_var_260, meaningful_var_141, this.y_draw + this.getNameSize());
+    }
+  };
+  var meaningful_var_129 = document.createElement("button");
+  meaningful_var_129.innerHTML = "Renkleri Sıfırla";
+  meaningful_var_129.style.color = "white";
+  meaningful_var_129.style.top = "-4px";
+  meaningful_var_129.style.position = "relative";
+  meaningful_var_129.style.right = "-2px";
+  meaningful_var_129.style.backgroundColor = "#dc3545";
+  meaningful_var_129.style.border = "none";
+  meaningful_var_129.style.borderRadius = "3px";
+  meaningful_var_129.style.padding = "5px 10px";
+  meaningful_var_129.style.cursor = "pointer";
+  meaningful_var_129.style.fontSize = "12px";
+  meaningful_var_129.style.marginTop = "5px";
+  meaningful_var_129.style.transition = "background-color 0.3s, transform 0.2s";
+  meaningful_var_129.addEventListener("mouseover", function () {
+    meaningful_var_129.style.backgroundColor = "#c82333";
+  });
+  meaningful_var_129.addEventListener("mouseout", function () {
+    meaningful_var_129.style.backgroundColor = "#dc3545";
+  });
+  meaningful_var_129.addEventListener("mousedown", function () {
+    meaningful_var_129.style.transform = "scale(0.95)";
+  });
+  meaningful_var_129.addEventListener("mouseup", function () {
+    meaningful_var_129.style.transform = "scale(1)";
+  });
+  meaningful_var_31.appendChild(meaningful_var_129);
+  meaningful_var_129.addEventListener("click", function () {
+    meaningful_var_191 = "#FFFFFF";
+    meaningful_var_188 = "#616161";
+    meaningful_var_110 = "#FFFFFF";
+    meaningful_var_67.value = meaningful_var_191;
+    meaningful_var_241.value = meaningful_var_188;
+    meaningful_var_4.value = meaningful_var_110;
+    localStorage.setItem("overlayColor", meaningful_var_191);
+    localStorage.setItem("borderColor", meaningful_var_188);
+    localStorage.setItem("playerNameColor", meaningful_var_110);
+    if (meaningful_var_230) {
+      meaningful_var_84();
+    }
+    meaningful_var_88();
+  });
+})();
+
+
+document.querySelector("div[style=\"position: fixed;bottom: 510px;right: -323px;z-index: 1042;\"]").remove();
+$("#address").remove();
+$("#address").remove();
+
+  window.addEventListener('DOMContentLoaded', function () {
+    const panel = document.querySelector('.right-panel');
+    if (panel) {
+      panel.style.bottom = '80px';
+    }
+  });
+
+!function rainbowBorder(){let h=0;requestAnimationFrame(function update(){colorData&&(colorData.Border=`hsl(${h},100%,50%)`);h=(h+0.3)%360;requestAnimationFrame(update)})}();
+
+// === FAVORİ SKİNLER ===
+const favoriSkinler = [
+  { image: "https://cdn.agarz.com/z_613928_yrn277.png", value: "yrn277" },
+  { image: "https://cdn.agarz.com/z_613927_yrn276.png", value: "yrn276" },
+  { image: "https://cdn.agarz.com/z_613926_yrn275.png", value: "yrn275" },
+  { image: "https://cdn.agarz.com/z_613443_yrn272.png", value: "yrn272" },
+  { image: "https://cdn.agarz.com/z_613441_yrn270.png", value: "yrn270" },
+  { image: "https://cdn.agarz.com/z_613440_yrn269.png", value: "yrn269" },
+  { image: "https://cdn.agarz.com/z_613436_yrn264.png", value: "yrn264" },
+  { image: "https://cdn.agarz.com/z_612804_yrn263.png", value: "yrn263" },
+  { image: "https://cdn.agarz.com/z_609354_yrnn26.png", value: "yrnn26" },
+  { image: "https://cdn.agarz.com/z_609252_wlssx225.png", value: "wlssx225" }
+];
+
+// === BUTON OLUŞTUR ===
+const skinBtn = document.createElement("button");
+skinBtn.textContent = "Skin Favori";
+Object.assign(skinBtn.style, {
+  position: "absolute",
+  top: "60%",
+  left: "10px",
+  padding: "8px 12px",
+  border: "2px solid white",
+  borderRadius: "12px",
+  background: "transparent",
+  color: "white",
+  fontSize: "14px",
+  cursor: "pointer",
+  zIndex: "0",
+  textShadow: "0 0 5px white"
+});
+skinBtn.addEventListener("mouseover", () => skinBtn.style.backgroundColor = "red");
+skinBtn.addEventListener("mouseout", () => skinBtn.style.backgroundColor = "transparent");
+document.body.appendChild(skinBtn);
+
+// === YUVARLAK MENÜ ===
+const yuvarlakMenu = document.createElement("div");
+Object.assign(yuvarlakMenu.style, {
+  position: "fixed",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+  width: "400px",
+  height: "400px",
+  borderRadius: "50%",
+  display: "none",
+  zIndex: "0",
+  pointerEvents: "none"
+});
+document.body.appendChild(yuvarlakMenu);
+
+// === ORTA PROFİL RESMİ ===
+const centerImage = document.createElement("div");
+Object.assign(centerImage.style, {
+  width: "100px",
+  height: "100px",
+  borderRadius: "50%",
+  background: `url('${favoriSkinler[0].image}') center/cover no-repeat`,
+  position: "absolute",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+  boxShadow: "0 0 20px white",
+  cursor: "pointer",
+  pointerEvents: "auto"
+});
+centerImage.addEventListener("click", () => {
+  selectSkin(favoriSkinler[0].value);
+});
+yuvarlakMenu.appendChild(centerImage);
+
+// === SKİNLERİ YERLEŞTİR ===
+favoriSkinler.forEach(({ image, value }) => {
+  const skin = document.createElement("img");
+  skin.src = image;
+  Object.assign(skin.style, {
+    position: "absolute",
+    width: "70px",
+    height: "70px",
+    borderRadius: "50%",
+    border: "2px solid white",
+    boxShadow: "0 0 20px white, 0 0 40px white",
+    cursor: "pointer",
+    pointerEvents: "auto"
+  });
+  skin.addEventListener("click", () => {
+    selectSkin(value);
+  });
+  yuvarlakMenu.appendChild(skin);
+});
+
+// === SKİN SEÇİMİ FONKSİYONU ===
+function selectSkin(value) {
+  const input = document.getElementById("txtSkin");
+  if (input) input.value = value;
+
+  const playBtn = document.getElementById("playBtn");
+  if (playBtn) playBtn.click();
+
+  yuvarlakMenu.style.display = "none";
+}
+
+// === DÖNME ANİMASYONU ===
+let rotationAngle = 0;
+function rotateSkins() {
+  const children = yuvarlakMenu.querySelectorAll("img:not(:first-child)");
+  const radius = 160;
+  const angleStep = (2 * Math.PI) / children.length;
+  children.forEach((child, i) => {
+    const angle = rotationAngle + i * angleStep;
+    const x = radius * Math.cos(angle) + 200 - 35;
+    const y = radius * Math.sin(angle) + 200 - 35;
+    child.style.left = `${x}px`;
+    child.style.top = `${y}px`;
+  });
+  rotationAngle += 0.0015; // Daha yavaş dönüş
+  if (yuvarlakMenu.style.display === "flex") {
+    requestAnimationFrame(rotateSkins);
+  }
+}
+
+// === MENÜ AÇ-KAPA ===
+function toggleSkinMenu() {
+  if (yuvarlakMenu.style.display === "none") {
+    yuvarlakMenu.style.display = "flex";
+    rotateSkins();
+  } else {
+    yuvarlakMenu.style.display = "none";
+  }
+}
+
+skinBtn.addEventListener("click", toggleSkinMenu);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "7") toggleSkinMenu();
+});
+
+// === skinBtn GİZLE/GÖSTER ===
+function toggleSkinButton() {
+  if (skinBtn.style.display === "none") {
+    skinBtn.style.display = "inline-block"; // veya "block" senin yapına göre
+  } else {
+    skinBtn.style.display = "none";
+  }
+}
+
+// === TUŞ OLAYLARI ===
+document.addEventListener("keydown", (e) => {
+  if (e.key === "4") {
+    toggleSkinButton();
+  }
+});
+
+// === skinBtn BUTON OLAYI ===
+skinBtn.addEventListener("click", toggleSkinMenu);
+
+const targetButton = document.querySelector('body > button:nth-child(37');
+
+if (targetButton) {
+  targetButton.style.position = "absolute";
+  targetButton.style.top = "40.7%";
+  targetButton.style.left = "0px";
+  targetButton.style.padding = "4px 9px";
+  targetButton.style.border = "2px solid white";
+  targetButton.style.borderRadius = "30px";
+  targetButton.style.background = "#ab222200";
+  targetButton.style.color = "#ffffff";
+  targetButton.style.fontSize = "13px";
+  targetButton.style.cursor = "pointer";
+  targetButton.style.zIndex = "0";
+  targetButton.style.textShadow = "0 0 10px white, 0 0 0px black, 0 0 30px white";
+}
+// Mikrofon butonu
+const micButton = document.createElement("button");
+micButton.innerHTML = "🔴<br><span style='font-size:10px;'>Kapalı</span>";
+Object.assign(micButton.style, {
+  position: "fixed",
+  bottom: "20px",
+  left: "50%",
+  transform: "translateX(-50%)",
+  backgroundColor: "rgba(255, 0, 0, 0.8)",
+  border: "1px solid white",
+  color: "white",
+  borderRadius: "10px",
+  padding: "6px 10px",
+  fontSize: "16px",
+  zIndex: "*",
+  cursor: "pointer",
+  boxShadow: "0 0 10px red",
+  transition: "all 0.4s ease"
+});
+micButton.title = "Mikrofonu Aç/Kapat";
+document.body.appendChild(micButton);
+
+// Animasyonlu üst yazı
+const status = document.createElement("div");
+Object.assign(status.style, {
+  position: "fixed",
+  top: "150px",
+  left: "50%",
+  transform: "translateX(-50%)",
+  fontSize: "22px",
+  fontWeight: "bold",
+  padding: "10px 20px",
+  borderRadius: "10px",
+  zIndex: "0",
+  opacity: 0,
+  transition: "opacity 0.5s ease, transform 0.5s ease",
+});
+document.body.appendChild(status);
+
+function showStatus(text, color) {
+  status.textContent = text;
+  status.style.color = color;
+  status.style.textShadow = `0 0 10px ${color}, 0 0 20px ${color}`;
+  status.style.opacity = 1;
+  status.style.transform = "translateX(-50%) scale(1.1)";
+  setTimeout(() => {
+    status.style.opacity = 0;
+    status.style.transform = "translateX(-50%) scale(1)";
+  }, 3000);
+}
+
+let micActive = false;
+let recognition;
+
+function toggleMic() {
+  micActive = !micActive;
+  if (micActive) {
+    micButton.innerHTML = "🟢<br><span style='font-size:10px;'>Açık</span>";
+    micButton.style.backgroundColor = "rgba(0, 180, 0, 0.8)";
+    micButton.style.boxShadow = "0 0 15px lime";
+    startRecognition();
+  } else {
+    micButton.innerHTML = "🔴<br><span style='font-size:10px;'>Kapalı</span>";
+    micButton.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
+    micButton.style.boxShadow = "0 0 10px red";
+    stopRecognition();
+  }
+}
+micButton.addEventListener("click", toggleMic);
+
+// Sesli komutlar kutusu
+const voiceCommandsBox = document.createElement("div");
+voiceCommandsBox.innerHTML = `
+  <b>🔊 Sesli Komutlar:</b><br>
+  - "gir"<br>
+  - "izle"<br>
+  - "gir", "izle" vb.<br>
+  - "gold ekle"<br>
+  - "tekrar"<br>
+`;
+Object.assign(voiceCommandsBox.style, {
+  position: "fixed",
+  bottom: "200px",
+  left: "1785px",
+  padding: "10px",
+  background: "black",
+  color: "white",
+  fontSize: "12px",
+  borderRadius: "10px",
+  zIndex: "0",
+  boxShadow: "0 0 15px red",
+  animation: "rgbBorder 5s linear infinite",
+});
+document.body.appendChild(voiceCommandsBox);
+
+// RGB kenarlık animasyonu
+style.textContent = `
+@keyframes rgbBorder {
+  0%   { box-shadow: 0 0 10px red; }
+  25%  { box-shadow: 0 0 10px yellow; }
+  50%  { box-shadow: 0 0 10px lime; }
+  75%  { box-shadow: 0 0 10px cyan; }
+  100% { box-shadow: 0 0 10px magenta; }
+}`;
+document.head.appendChild(style);
+
+// 4 tuşu ile aç/kapa
+let komutKutuGorunur = true;
+document.addEventListener("keydown", function (e) {
+  if (e.key === "4" && !e.repeat) {
+    komutKutuGorunur = !komutKutuGorunur;
+    voiceCommandsBox.style.display = komutKutuGorunur ? "block" : "none";
+  }
+});
+
+
+Object.assign(komutKutu.style, {
+  position: "fixed",
+  bottom: "65px",
+  left: "calc(88% - 150px)",
+  padding: "10px",
+  border: "2px solid red",
+  borderRadius: "10px",
+  color: "white",
+  background: "rgba(50, 0, 0, 0.8)",
+  boxShadow: "0 0 10px red, 0 0 20px red",
+  zIndex: 0,
+  fontSize: "13px",
+  lineHeight: "1.5em",
+});
+document.body.appendChild(komutKutu);
+
+// Ses tanıma
+function startRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return alert("Tarayıcınız ses tanımayı desteklemiyor.");
+
+  recognition = new SpeechRecognition();
+  recognition.lang = "tr-TR";
+  recognition.continuous = true;
+  recognition.interimResults = false;
+
+  recognition.onresult = function (event) {
+    const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+    console.log("🎤 Komut:", transcript);
+
+    if (transcript.includes("gold ekle")) {
+      if (typeof buttonBt !== "undefined") buttonBt.click();
+      showStatus("💰 100K eklendi", "red");
+      return;
+    }
+
+    if (transcript === "gir") {
+      const td = [...document.querySelectorAll("td")].find(td => td.getAttribute("onclick")?.includes("-go ffa-"));
+      if (td) td.click();
+      showStatus("🎮 Oyuna giriliyor", "deepskyblue");
+      return;
+    }
+
+    if (transcript === "izle") {
+      const td = [...document.querySelectorAll("td")].find(td => td.getAttribute("onclick")?.includes("-gi ffa-"));
+      if (td) td.click();
+      showStatus("👀 İzleyiciye geçiliyor", "gold");
+      return;
+    }
+
+    if (transcript === "tekrar") {
+      const eventSim = new KeyboardEvent('keydown', { key: ffadançıkgir });
+      document.dispatchEvent(eventSim);
+
+      $(() => {
+        $(document).off('keydown.respawn').on('keydown.respawn', function(e) {
+          if (e.key === ffadançıkgir && !$(e.target).is("input")) {
+            wsClose();
+            setTimeout(() => {
+              onClickPlay();
+            }, 400);
+          }
+        });
+      });
+
+      showStatus("🔁 Tekrar", "lime");
+      return;
+    }
+
+    if (transcript.includes("goldu sorgula")) {
+      const chatBox = document.getElementById("chat_textbox");
+      if (chatBox) {
+        chatBox.value = "-b";
+        chatBox.dispatchEvent(new Event("input"));
+        chatBox.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+        setTimeout(() => {
+          const messages = [...document.querySelectorAll(".chat_line")];
+          if (messages.length > 0) {
+            const lastMsg = messages[messages.length - 1].textContent;
+            showStatus(lastMsg, "violet");
+          }
+        }, 500);
+      }
+      return;
+    }
+
+    const match = transcript.match(/^([a-zA-Z0-9]+) (gir|izle)$/);
+    if (match) {
+      const oda = match[1].startsWith("ffa") || match[1].startsWith("cffa") ? match[1] : "ffa" + match[1];
+      const eylem = match[2];
+      selectServer(oda);
+
+      const td = [...document.querySelectorAll("td")].find(td =>
+        td.getAttribute("onclick")?.includes(eylem === "gir" ? "-go ffa-" : "-gi ffa-")
+      );
+
+      if (td) td.click();
+      showStatus(
+        `${eylem === "gir" ? "🎮" : "👀"} ${oda} ${eylem === "gir" ? "giriliyor" : "izleniyor"}`,
+        eylem === "gir" ? "deepskyblue" : "gold"
+      );
+      return;
+    }
+  };
+
+  recognition.onerror = e => console.error("Mic error:", e.error);
+  recognition.onend = () => { if (micActive) recognition.start(); };
+  recognition.start();
+}
+
+function stopRecognition() {
+  if (recognition) recognition.stop();
+}
+
+function selectServer(serverId) {
+  const select = document.getElementById("gamemode");
+  const option = document.getElementById(serverId);
+  if (select && option) {
+    select.value = option.value;
+    select.dispatchEvent(new Event("change"));
+    setserver4(option.value);
+    skipPopupOnClose = true;
+    reconnect = 1;
+    cellManager.drawMode = 0;
+    cellManager.clearRecord();
+    userScoreCurrent = 0;
+    userScoreMax = 0;
+    setSpectator = 0;
+    console.log(`✅ ${serverId} seçildi.`);
+  } else {
+    console.warn(`❌ ${serverId} bulunamadı.`);
+  }
+}
+
+
+
